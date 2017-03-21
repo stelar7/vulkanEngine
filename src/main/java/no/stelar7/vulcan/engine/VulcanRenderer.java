@@ -12,48 +12,73 @@ import static org.lwjgl.glfw.GLFW.*;
 import static org.lwjgl.glfw.GLFWVulkan.*;
 import static org.lwjgl.system.MemoryUtil.*;
 import static org.lwjgl.vulkan.EXTDebugReport.*;
+import static org.lwjgl.vulkan.KHRSurface.*;
 import static org.lwjgl.vulkan.VK10.*;
 
-public class MainClass
+public class VulcanRenderer
 {
     private static final int    WIDTH  = 800;
     private static final int    HEIGHT = 600;
     private static final String TITLE  = "Vulcan Game Engine";
     private Game game;
     
+    private static class ColorFormatAndSpace
+    {
+        protected int colorFormat;
+        protected int colorSpace;
+    }
+    
+    
     private final Object lock = new Object();
-    private long    window;
     private boolean shouldClose;
-    
     private boolean debugMode = true;
-    
     
     private PointerBuffer pBuff = BufferUtils.createPointerBuffer(1);
     private IntBuffer     iBuff = BufferUtils.createIntBuffer(1);
     private LongBuffer    lBuff = BufferUtils.createLongBuffer(1);
     
-    private PointerBuffer instanceExt    = BufferUtils.createPointerBuffer(12);
-    private PointerBuffer instanceLayers = BufferUtils.createPointerBuffer(12);
+    private PointerBuffer instanceExt;
+    private PointerBuffer instanceLayers;
     
-    
-    private static final int VK_API_VERSION         = VK_MAKE_VERSION(1, 0, 27);
+    private static final int VK_API_VERSION         = VK_MAKE_VERSION(1, 0, 3);
     private static final int VK_APPLICATION_VERSION = VK_MAKE_VERSION(0, 1, 0);
     
     private VkInstance       instance;
     private VkDevice         device;
     private VkPhysicalDevice gpu;
-    
-    private long debugCallbackHandle;
+    private VkQueue          queue;
     
     private VkPhysicalDeviceProperties gpuProperties = VkPhysicalDeviceProperties.create();
     private VkPhysicalDeviceFeatures   gpuFeatures   = VkPhysicalDeviceFeatures.create();
     
-    private int graphicsFamilyIndex;
+    private ColorFormatAndSpace colorFormatAndSpace;
+    
+    private long debugCallbackHandle = VK_NULL_HANDLE;
+    private long commandPoolHandle   = VK_NULL_HANDLE;
+    private long fenceHandle         = VK_NULL_HANDLE;
+    private long semaphoreHandle     = VK_NULL_HANDLE;
+    private long surfaceHandle       = VK_NULL_HANDLE;
+    private long windowHandle        = VK_NULL_HANDLE;
+    
+    public VkDevice getDevice()
+    {
+        return device;
+    }
+    
+    public VkInstance getInstance()
+    {
+        return instance;
+    }
+    
+    public VkPhysicalDevice getPhysicalDevice()
+    {
+        return gpu;
+    }
     
     
     public static void main(String[] args)
     {
-        new MainClass().run();
+        new VulcanRenderer().run();
     }
     
     public void run()
@@ -71,13 +96,18 @@ public class MainClass
             
             synchronized (lock)
             {
+                vkDestroyFence(device, fenceHandle, null);
+                vkDestroySemaphore(device, semaphoreHandle, null);
+                vkDestroyCommandPool(device, commandPoolHandle, null);
                 vkDestroyDevice(device, null);
+                
+                KHRSurface.vkDestroySurfaceKHR(instance, surfaceHandle, null);
                 
                 vkDestroyDebugReportCallbackEXT(instance, debugCallbackHandle, null);
                 vkDestroyInstance(instance, null);
                 
-                glfwFreeCallbacks(window);
-                glfwDestroyWindow(window);
+                glfwFreeCallbacks(windowHandle);
+                glfwDestroyWindow(windowHandle);
             }
         } finally
         {
@@ -97,12 +127,19 @@ public class MainClass
             throw new RuntimeException("Vulkan not supported");
         }
         
+        PointerBuffer requiredExtensions = glfwGetRequiredInstanceExtensions();
+        if (requiredExtensions == null)
+        {
+            throw new RuntimeException("Failed to get required extensions");
+        }
+        
         glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-        window = glfwCreateWindow(WIDTH, HEIGHT, TITLE, MemoryUtil.NULL, MemoryUtil.NULL);
+        glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
+        windowHandle = glfwCreateWindow(WIDTH, HEIGHT, TITLE, MemoryUtil.NULL, MemoryUtil.NULL);
         
         if (debugMode)
         {
-            setupVkDebug();
+            setupVkDebug(requiredExtensions);
         }
         
         createVkInstance();
@@ -113,26 +150,188 @@ public class MainClass
         }
         
         createVkDevice();
+        createVkSurface();
+        
+        createVkFence();
+        createVkSemaphore();
+        createVkCommandPool();
+        createVkCommandBuffer();
+        
+        glfwShowWindow(windowHandle);
         
     }
     
-    private void setupVkDebug()
+    private void createVkSurface()
     {
+        
+        int status = glfwCreateWindowSurface(instance, windowHandle, null, lBuff);
+        if (status != VK_SUCCESS)
+        {
+            throw new RuntimeException(EngineUtils.vkErrorToString(status));
+        }
+        
+        surfaceHandle = lBuff.get(0);
+        
+        IntBuffer wsiBuffer = BufferUtils.createIntBuffer(1).put(VK_TRUE);
+        wsiBuffer.flip();
+        status = vkGetPhysicalDeviceSurfaceSupportKHR(gpu, getDeviceQueueFamilyPropertyIndex(VK_QUEUE_GRAPHICS_BIT), surfaceHandle, wsiBuffer);
+        if (status != VK_SUCCESS)
+        {
+            throw new RuntimeException(EngineUtils.vkErrorToString(status));
+        }
+        
+        
+        VkSurfaceCapabilitiesKHR capabilities = VkSurfaceCapabilitiesKHR.create();
+        status = vkGetPhysicalDeviceSurfaceCapabilitiesKHR(gpu, surfaceHandle, capabilities);
+        if (status != VK_SUCCESS)
+        {
+            throw new RuntimeException(EngineUtils.vkErrorToString(status));
+        }
+        
+        System.out.println("Max Framebuffers: " + capabilities.maxImageCount());
+        System.out.println("Current Window Size: " + capabilities.currentExtent().width() + "x" + capabilities.currentExtent().height());
+        System.out.println("Max Window Size: " + capabilities.maxImageExtent().width() + "x" + capabilities.maxImageExtent().height());
+        System.out.println();
+        
+        IntBuffer formatCount = BufferUtils.createIntBuffer(1);
+        status = vkGetPhysicalDeviceSurfaceFormatsKHR(gpu, surfaceHandle, formatCount, null);
+        if (status != VK_SUCCESS)
+        {
+            throw new RuntimeException(EngineUtils.vkErrorToString(status));
+        }
+        
+        if (formatCount.get(0) < 1)
+        {
+            throw new RuntimeException("No Surface Formats Found");
+        }
+        
+        VkSurfaceFormatKHR.Buffer formats = VkSurfaceFormatKHR.create(1);
+        status = vkGetPhysicalDeviceSurfaceFormatsKHR(gpu, surfaceHandle, formatCount, formats);
+        if (status != VK_SUCCESS)
+        {
+            throw new RuntimeException(EngineUtils.vkErrorToString(status));
+        }
+        
+        colorFormatAndSpace = new ColorFormatAndSpace();
+        colorFormatAndSpace.colorSpace = formats.get(0).colorSpace();
+        if (formats.get(0).format() == VK_FORMAT_UNDEFINED)
+        {
+            colorFormatAndSpace.colorFormat = VK_FORMAT_B8G8R8_UNORM;
+        } else
+        {
+            colorFormatAndSpace.colorFormat = formats.get(0).format();
+        }
+        
+    }
+    
+    private void createVkSemaphore()
+    {
+        
+        VkSemaphoreCreateInfo semaphoreInfo = VkSemaphoreCreateInfo.create()
+                                                                   .sType(VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO);
+        
+        vkCreateSemaphore(device, semaphoreInfo, null, lBuff);
+        semaphoreHandle = lBuff.get(0);
+    }
+    
+    private void createVkFence()
+    {
+        VkFenceCreateInfo fenceInfo = VkFenceCreateInfo.create()
+                                                       .sType(VK_STRUCTURE_TYPE_FENCE_CREATE_INFO);
+        
+        vkCreateFence(device, fenceInfo, null, lBuff);
+        fenceHandle = lBuff.get(0);
+        
+    }
+    
+    private void createVkCommandBuffer()
+    {
+        
+        VkCommandBufferAllocateInfo info = VkCommandBufferAllocateInfo.create()
+                                                                      .sType(VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO)
+                                                                      .commandPool(commandPoolHandle)
+                                                                      .commandBufferCount(1)
+                                                                      .level(VK_COMMAND_BUFFER_LEVEL_PRIMARY);
+        
+        
+        int status = vkAllocateCommandBuffers(device, info, pBuff);
+        if (status != VK_SUCCESS)
+        {
+            throw new RuntimeException(EngineUtils.vkErrorToString(status));
+        }
+        
+        VkCommandBuffer commandBuffer = new VkCommandBuffer(pBuff.get(0), device);
+        VkCommandBufferBeginInfo beginInfo = VkCommandBufferBeginInfo.create()
+                                                                     .sType(VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO);
+        
+        status = vkBeginCommandBuffer(commandBuffer, beginInfo);
+        if (status != VK_SUCCESS)
+        {
+            throw new RuntimeException(EngineUtils.vkErrorToString(status));
+        }
+        
+        VkViewport.Buffer viewPort = VkViewport.create(1)
+                                               .maxDepth(1)
+                                               .minDepth(0)
+                                               .width(WIDTH)
+                                               .height(HEIGHT)
+                                               .x(0)
+                                               .y(0);
+        vkCmdSetViewport(commandBuffer, 0, viewPort);
+        
+        status = vkEndCommandBuffer(commandBuffer);
+        if (status != VK_SUCCESS)
+        {
+            throw new RuntimeException(EngineUtils.vkErrorToString(status));
+        }
+        
+        
+        PointerBuffer commandBuff = BufferUtils.createPointerBuffer(1).put(commandBuffer).flip();
+        
+        VkSubmitInfo submitInfo = VkSubmitInfo.create()
+                                              .sType(VK_STRUCTURE_TYPE_SUBMIT_INFO)
+                                              .pCommandBuffers(commandBuff);
+        
+        status = vkQueueSubmit(queue, submitInfo, fenceHandle);
+        if (status != VK_SUCCESS)
+        {
+            throw new RuntimeException(EngineUtils.vkErrorToString(status));
+        }
+        
+        status = vkWaitForFences(device, fenceHandle, false, Long.MAX_VALUE);
+        if (status != VK_SUCCESS)
+        {
+            throw new RuntimeException(EngineUtils.vkErrorToString(status));
+        }
+        
+    }
+    
+    private void createVkCommandPool()
+    {
+        VkCommandPoolCreateInfo createInfo = VkCommandPoolCreateInfo.create()
+                                                                    .sType(VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO)
+                                                                    .queueFamilyIndex(getDeviceQueueFamilyPropertyIndex(VK_QUEUE_GRAPHICS_BIT))
+                                                                    .flags(VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT);
+        
+        int status = vkCreateCommandPool(device, createInfo, null, lBuff);
+        
+        if (status != VK_SUCCESS)
+        {
+            throw new RuntimeException(EngineUtils.vkErrorToString(status));
+        }
+        
+        commandPoolHandle = lBuff.get(0);
+    }
+    
+    private void setupVkDebug(PointerBuffer requiredExtensions)
+    {
+        instanceLayers = BufferUtils.createPointerBuffer(1);
         instanceLayers
                 .put(memASCII("VK_LAYER_LUNARG_standard_validation"))
-                /*.put(memASCII("VK_LAYER_LUNARG_api_dump"))
-                .put(memASCII("VK_LAYER_LUNARG_device_limits"))
-                .put(memASCII("VK_LAYER_LUNARG_draw_state"))
-                .put(memASCII("VK_LAYER_LUNARG_image"))
-                .put(memASCII("VK_LAYER_LUNARG_mem_tracker"))
-                .put(memASCII("VK_LAYER_LUNARG_object_tracker"))
-                .put(memASCII("VK_LAYER_LUNARG_param_checker"))
-                .put(memASCII("VK_LAYER_LUNARG_swapchain"))
-                .put(memASCII("VK_LAYER_LUNARG_threading"))
-                .put(memASCII("VK_LAYER_GOOGLE_unique_objects"))*/
                 .flip();
         
-        instanceExt.put(memASCII("VK_KHR_surface"))
+        instanceExt = BufferUtils.createPointerBuffer(requiredExtensions.remaining() + 1);
+        instanceExt.put(requiredExtensions)
                    .put(memASCII("VK_EXT_debug_report"))
                    .flip();
         
@@ -146,11 +345,7 @@ public class MainClass
             @Override
             public int invoke(int flags, int objectType, long object, long location, int messageCode, long pLayerPrefix, long pMessage, long pUserData)
             {
-                if ((flags & VK_DEBUG_REPORT_ERROR_BIT_EXT) != VK_DEBUG_REPORT_ERROR_BIT_EXT)
-                {
-                    System.err.format("ERROR: [%s] Code %d : %s%n", pLayerPrefix, messageCode, memASCII(pMessage));
-                }
-                
+                System.err.format("%s: [%s] Code %d : %s%n", EngineUtils.vkDebugFlagToString(flags), pLayerPrefix, messageCode, memASCII(pMessage));
                 return VK_FALSE;
             }
         };
@@ -237,14 +432,12 @@ public class MainClass
         System.out.println();
         
         
-        graphicsFamilyIndex = getDeviceQueueFamilyPropertyIndex(VK_QUEUE_GRAPHICS_BIT);
-        
         FloatBuffer priority = BufferUtils.createFloatBuffer(1);
         priority.put(1).flip();
         
         VkDeviceQueueCreateInfo.Buffer queueCreateInfo = VkDeviceQueueCreateInfo.create(1)
                                                                                 .sType(VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO)
-                                                                                .queueFamilyIndex(graphicsFamilyIndex)
+                                                                                .queueFamilyIndex(getDeviceQueueFamilyPropertyIndex(VK_QUEUE_GRAPHICS_BIT))
                                                                                 .pQueuePriorities(priority);
         
         VkDeviceCreateInfo deviceCreateInfo = VkDeviceCreateInfo.create()
@@ -258,6 +451,9 @@ public class MainClass
         }
         
         device = new VkDevice(pBuff.get(0), gpu, deviceCreateInfo);
+        
+        vkGetDeviceQueue(device, getDeviceQueueFamilyPropertyIndex(VK_QUEUE_GRAPHICS_BIT), 0, pBuff);
+        queue = new VkQueue(pBuff.get(0), device);
         
     }
     
@@ -288,6 +484,7 @@ public class MainClass
         
         instance = new VkInstance(pBuff.get(0), createInfo);
     }
+    
     
     private void loop()
     {
@@ -330,7 +527,7 @@ public class MainClass
             
             synchronized (lock)
             {
-                shouldClose = glfwWindowShouldClose(window);
+                shouldClose = glfwWindowShouldClose(windowHandle);
                 
                 if (shouldClose)
                 {
@@ -338,14 +535,14 @@ public class MainClass
                     return;
                 }
                 
-                glfwSwapBuffers(window);
+                glfwSwapBuffers(windowHandle);
             }
         }
     }
     
     private void postInit()
     {
-        game = new TestGame();
+        game = new TestGame(this);
     }
     
     private void update()

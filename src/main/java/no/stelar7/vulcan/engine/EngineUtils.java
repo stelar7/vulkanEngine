@@ -3250,4 +3250,32 @@ public final class EngineUtils
                 return "Unknown vendor";
         }
     }
+    
+    public static String vkDebugFlagToString(int flags)
+    {
+        StringBuilder sb = new StringBuilder();
+        if ((flags & VK_DEBUG_REPORT_INFORMATION_BIT_EXT) == VK_DEBUG_REPORT_INFORMATION_BIT_EXT)
+        {
+            sb.append("INFO");
+        }
+        if ((flags & VK_DEBUG_REPORT_WARNING_BIT_EXT) == VK_DEBUG_REPORT_WARNING_BIT_EXT)
+        {
+            sb.append("WARNING");
+            
+        }
+        if ((flags & VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT) == VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT)
+        {
+            sb.append("PERFORMANCE");
+        }
+        if ((flags & VK_DEBUG_REPORT_ERROR_BIT_EXT) == VK_DEBUG_REPORT_ERROR_BIT_EXT)
+        {
+            sb.append("ERROR");
+            
+        }
+        if ((flags & VK_DEBUG_REPORT_DEBUG_BIT_EXT) == VK_DEBUG_REPORT_DEBUG_BIT_EXT)
+        {
+            sb.append("DEBUG");
+        }
+        return sb.toString();
+    }
 }
