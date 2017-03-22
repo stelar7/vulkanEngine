@@ -1,5 +1,7 @@
 package no.stelar7.vulcan.engine;
 
+import org.lwjgl.vulkan.*;
+
 import static org.lwjgl.vulkan.EXTDebugReport.*;
 import static org.lwjgl.vulkan.KHRDisplaySwapchain.*;
 import static org.lwjgl.vulkan.KHRSurface.*;
@@ -140,4 +142,21 @@ public final class EngineUtils
             throw new RuntimeException(EngineUtils.vkErrorToString(status));
         }
     }
+    
+    public static int findMemoryTypeIndex(VkPhysicalDeviceMemoryProperties gpuMemory, VkMemoryRequirements requirements, int requiredProperties)
+    {
+        int memoryIndex = -1;
+        for (int i = 0; i < gpuMemory.memoryTypeCount(); i++)
+        {
+            if ((requirements.memoryTypeBits() & (1 << i)) == (1 << i))
+            {
+                if ((gpuMemory.memoryTypes(i).propertyFlags() & requiredProperties) == requiredProperties)
+                {
+                    return i;
+                }
+            }
+        }
+        throw new RuntimeException("No memory matching required type found");
+    }
+    
 }

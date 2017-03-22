@@ -6,6 +6,7 @@ import org.lwjgl.system.*;
 import org.lwjgl.vulkan.*;
 
 import java.nio.*;
+import java.util.*;
 
 import static org.lwjgl.glfw.Callbacks.*;
 import static org.lwjgl.glfw.GLFW.*;
@@ -41,7 +42,12 @@ public class VulcanRenderer
     private PointerBuffer instanceExt;
     private PointerBuffer instanceLayers;
     
+    
     private LongBuffer imageViewBuffer;
+    private long       depthStencilImage;
+    private long       depthStencilImageView;
+    private long       depthStencilImageMemory;
+    
     
     private PointerBuffer deviceExt;
     
@@ -54,9 +60,10 @@ public class VulcanRenderer
     private VkQueue          queue;
     private VkExtent2D       surfaceSize;
     
-    private VkPhysicalDeviceProperties gpuProperties       = VkPhysicalDeviceProperties.create();
-    private VkPhysicalDeviceFeatures   gpuFeatures         = VkPhysicalDeviceFeatures.create();
-    private VkSurfaceCapabilitiesKHR   surfaceCapabilities = VkSurfaceCapabilitiesKHR.create();
+    private VkPhysicalDeviceProperties       gpuProperties       = VkPhysicalDeviceProperties.create();
+    private VkPhysicalDeviceFeatures         gpuFeatures         = VkPhysicalDeviceFeatures.create();
+    private VkPhysicalDeviceMemoryProperties gpuMemory           = VkPhysicalDeviceMemoryProperties.create();
+    private VkSurfaceCapabilitiesKHR         surfaceCapabilities = VkSurfaceCapabilitiesKHR.create();
     
     private ColorFormatAndSpace surfaceFormat;
     
@@ -118,6 +125,12 @@ public class VulcanRenderer
                     vkDestroyImageView(device, imageViewBuffer.get(i), null);
                 }
                 
+                
+                vkDestroyImageView(device, depthStencilImageView, null);
+                vkFreeMemory(device, depthStencilImageMemory, null);
+                vkDestroyImage(device, depthStencilImage, null);
+                
+                
                 vkDestroyDevice(device, null);
                 vkDestroySurfaceKHR(instance, surfaceHandle, null);
                 
@@ -169,6 +182,8 @@ public class VulcanRenderer
         createVkSwapchain();
         createVkSwapchainImage();
         
+        createDepthStencilImage();
+        
         createVkFence();
         createVkSemaphore();
         createVkCommandPool();
@@ -178,10 +193,103 @@ public class VulcanRenderer
         
     }
     
+    private void createDepthStencilImage()
+    {
+        int depthStencilFormat = -1;
+        
+        List<Integer> depthFormats = Arrays.asList(VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT, VK_FORMAT_D16_UNORM_S8_UINT, VK_FORMAT_D32_SFLOAT, VK_FORMAT_D16_UNORM);
+        for (Integer testFormat : depthFormats)
+        {
+            VkFormatProperties formatProperties = VkFormatProperties.create();
+            vkGetPhysicalDeviceFormatProperties(gpu, testFormat, formatProperties);
+            
+            if ((formatProperties.optimalTilingFeatures() & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT) == VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT)
+            {
+                depthStencilFormat = testFormat;
+                break;
+            }
+        }
+        
+        if (depthStencilFormat == -1)
+        {
+            throw new RuntimeException("No Depth Stencil format found");
+        }
+        
+        boolean hasStencil = (depthStencilFormat == VK_FORMAT_D32_SFLOAT_S8_UINT) ||
+                             (depthStencilFormat == VK_FORMAT_D24_UNORM_S8_UINT) ||
+                             (depthStencilFormat == VK_FORMAT_D16_UNORM_S8_UINT);
+        
+        
+        VkExtent3D depthExtent = VkExtent3D.create()
+                                           .width(surfaceSize.width())
+                                           .height(surfaceSize.height())
+                                           .depth(1);
+        
+        VkImageCreateInfo createInfo = VkImageCreateInfo.create()
+                                                        .sType(VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO)
+                                                        .flags(0)
+                                                        .imageType(VK_IMAGE_TYPE_2D)
+                                                        .format(depthStencilFormat)
+                                                        .extent(depthExtent)
+                                                        .mipLevels(1)
+                                                        .arrayLayers(1)
+                                                        .samples(VK_SAMPLE_COUNT_1_BIT)
+                                                        .tiling(VK_IMAGE_TILING_OPTIMAL)
+                                                        .usage(VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT)
+                                                        .sharingMode(VK_SHARING_MODE_EXCLUSIVE)
+                                                        .pQueueFamilyIndices(null)
+                                                        .initialLayout(VK_IMAGE_LAYOUT_UNDEFINED);
+        
+        statusHolder = vkCreateImage(device, createInfo, null, lBuff);
+        depthStencilImage = lBuff.get(0);
+        EngineUtils.checkError(statusHolder);
+        
+        
+        VkMemoryRequirements memoryRequirements = VkMemoryRequirements.create();
+        vkGetImageMemoryRequirements(device, depthStencilImage, memoryRequirements);
+        
+        int memoryIndex = EngineUtils.findMemoryTypeIndex(gpuMemory, memoryRequirements, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        VkMemoryAllocateInfo allocateInfo = VkMemoryAllocateInfo.create()
+                                                                .sType(VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO)
+                                                                .allocationSize(memoryRequirements.size())
+                                                                .memoryTypeIndex(memoryIndex);
+        
+        vkAllocateMemory(device, allocateInfo, null, lBuff);
+        depthStencilImageMemory = lBuff.get(0);
+        vkBindImageMemory(device, depthStencilImage, depthStencilImageMemory, 0);
+        
+        VkComponentMapping mapping = VkComponentMapping.create()
+                                                       .r(VK_COMPONENT_SWIZZLE_IDENTITY)
+                                                       .g(VK_COMPONENT_SWIZZLE_IDENTITY)
+                                                       .b(VK_COMPONENT_SWIZZLE_IDENTITY)
+                                                       .a(VK_COMPONENT_SWIZZLE_IDENTITY);
+        
+        VkImageSubresourceRange range = VkImageSubresourceRange.create()
+                                                               .aspectMask(VK_IMAGE_ASPECT_DEPTH_BIT | (hasStencil ? VK_IMAGE_ASPECT_STENCIL_BIT : 0))
+                                                               .baseMipLevel(0)
+                                                               .levelCount(1)
+                                                               .baseArrayLayer(0)
+                                                               .layerCount(1);
+        
+        
+        lBuff.put(0, depthStencilImage);
+        VkImageViewCreateInfo viewCreateInfo = VkImageViewCreateInfo.create()
+                                                                    .sType(VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO)
+                                                                    .image(lBuff.get(0))
+                                                                    .viewType(VK_IMAGE_VIEW_TYPE_2D)
+                                                                    .format(depthStencilFormat)
+                                                                    .components(mapping)
+                                                                    .subresourceRange(range);
+        
+        statusHolder = vkCreateImageView(device, viewCreateInfo, null, lBuff);
+        depthStencilImageView = lBuff.get(0);
+        EngineUtils.checkError(statusHolder);
+    }
+    
+    
     private void createVkSwapchainImage()
     {
-        LongBuffer imageBuffer    = BufferUtils.createLongBuffer(swapchainImageCount);
-        LongBuffer tempViewBuffer = BufferUtils.createLongBuffer(swapchainImageCount);
+        LongBuffer imageBuffer = BufferUtils.createLongBuffer(swapchainImageCount);
         imageViewBuffer = BufferUtils.createLongBuffer(swapchainImageCount);
         
         statusHolder = vkGetSwapchainImagesKHR(device, swapchainHandle, iBuff, imageBuffer);
@@ -214,8 +322,6 @@ public class VulcanRenderer
             statusHolder = vkCreateImageView(device, createInfo, null, lBuff);
             imageViewBuffer.put(i, lBuff.get(0));
             EngineUtils.checkError(statusHolder);
-    
-            System.out.println("Created ImageView id: " + lBuff.get(0));
         }
     }
     
@@ -500,6 +606,7 @@ public class VulcanRenderer
             gpu = new VkPhysicalDevice(gpuHandles.get(0), instance);
             vkGetPhysicalDeviceProperties(gpu, gpuProperties);
             vkGetPhysicalDeviceFeatures(gpu, gpuFeatures);
+            vkGetPhysicalDeviceMemoryProperties(gpu, gpuMemory);
             
             
             System.out.println("Device Type: " + EngineUtils.vkPhysicalDeviceToString(gpuProperties.deviceType()));
