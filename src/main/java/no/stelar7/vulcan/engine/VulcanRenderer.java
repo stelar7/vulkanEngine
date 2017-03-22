@@ -41,6 +41,8 @@ public class VulcanRenderer
     private PointerBuffer instanceExt;
     private PointerBuffer instanceLayers;
     
+    private LongBuffer imageViewBuffer;
+    
     private PointerBuffer deviceExt;
     
     private static final int VK_API_VERSION         = VK_MAKE_VERSION(1, 0, 3);
@@ -56,7 +58,7 @@ public class VulcanRenderer
     private VkPhysicalDeviceFeatures   gpuFeatures         = VkPhysicalDeviceFeatures.create();
     private VkSurfaceCapabilitiesKHR   surfaceCapabilities = VkSurfaceCapabilitiesKHR.create();
     
-    private ColorFormatAndSpace colorFormatAndSpace;
+    private ColorFormatAndSpace surfaceFormat;
     
     private int swapchainImageCount = 2;
     
@@ -110,8 +112,13 @@ public class VulcanRenderer
                 vkDestroySemaphore(device, semaphoreHandle, null);
                 vkDestroyCommandPool(device, commandPoolHandle, null);
                 vkDestroySwapchainKHR(device, swapchainHandle, null);
-                vkDestroyDevice(device, null);
                 
+                for (int i = 0; i < swapchainImageCount; i++)
+                {
+                    vkDestroyImageView(device, imageViewBuffer.get(i), null);
+                }
+                
+                vkDestroyDevice(device, null);
                 vkDestroySurfaceKHR(instance, surfaceHandle, null);
                 
                 vkDestroyDebugReportCallbackEXT(instance, debugCallbackHandle, null);
@@ -160,6 +167,7 @@ public class VulcanRenderer
         createVkSurface();
         
         createVkSwapchain();
+        createVkSwapchainImage();
         
         createVkFence();
         createVkSemaphore();
@@ -170,10 +178,49 @@ public class VulcanRenderer
         
     }
     
+    private void createVkSwapchainImage()
+    {
+        LongBuffer imageBuffer    = BufferUtils.createLongBuffer(swapchainImageCount);
+        LongBuffer tempViewBuffer = BufferUtils.createLongBuffer(swapchainImageCount);
+        imageViewBuffer = BufferUtils.createLongBuffer(swapchainImageCount);
+        
+        statusHolder = vkGetSwapchainImagesKHR(device, swapchainHandle, iBuff, imageBuffer);
+        EngineUtils.checkError(statusHolder);
+        
+        VkComponentMapping mapping = VkComponentMapping.create()
+                                                       .r(VK_COMPONENT_SWIZZLE_IDENTITY)
+                                                       .g(VK_COMPONENT_SWIZZLE_IDENTITY)
+                                                       .b(VK_COMPONENT_SWIZZLE_IDENTITY)
+                                                       .a(VK_COMPONENT_SWIZZLE_IDENTITY);
+        
+        VkImageSubresourceRange range = VkImageSubresourceRange.create()
+                                                               .aspectMask(VK_IMAGE_ASPECT_COLOR_BIT)
+                                                               .baseMipLevel(0)
+                                                               .levelCount(1)
+                                                               .baseArrayLayer(0)
+                                                               .layerCount(1);
+        
+        for (int i = 0; i < swapchainImageCount; i++)
+        {
+            VkImageViewCreateInfo createInfo = VkImageViewCreateInfo.create()
+                                                                    .sType(VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO)
+                                                                    .image(imageBuffer.get(i))
+                                                                    .viewType(VK_IMAGE_VIEW_TYPE_2D)
+                                                                    .format(surfaceFormat.colorFormat)
+                                                                    .components(mapping)
+                                                                    .subresourceRange(range);
+            
+            
+            statusHolder = vkCreateImageView(device, createInfo, null, lBuff);
+            imageViewBuffer.put(i, lBuff.get(0));
+            EngineUtils.checkError(statusHolder);
+    
+            System.out.println("Created ImageView id: " + lBuff.get(0));
+        }
+    }
+    
     private void createVkSwapchain()
     {
-        
-        
         statusHolder = vkGetPhysicalDeviceSurfacePresentModesKHR(gpu, surfaceHandle, iBuff, null);
         EngineUtils.checkError(statusHolder);
         
@@ -209,9 +256,9 @@ public class VulcanRenderer
         VkSwapchainCreateInfoKHR createInfo = VkSwapchainCreateInfoKHR.create()
                                                                       .sType(KHRSwapchain.VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR)
                                                                       .surface(surfaceHandle)
-                                                                      .minImageCount(2)
-                                                                      .imageFormat(colorFormatAndSpace.colorFormat)
-                                                                      .imageColorSpace(colorFormatAndSpace.colorSpace)
+                                                                      .minImageCount(swapchainImageCount)
+                                                                      .imageFormat(surfaceFormat.colorFormat)
+                                                                      .imageColorSpace(surfaceFormat.colorSpace)
                                                                       .imageExtent(surfaceSize)
                                                                       .imageArrayLayers(1)
                                                                       .imageUsage(VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT)
@@ -252,11 +299,17 @@ public class VulcanRenderer
         
         statusHolder = vkGetPhysicalDeviceSurfaceCapabilitiesKHR(gpu, surfaceHandle, surfaceCapabilities);
         EngineUtils.checkError(statusHolder);
-        
-        swapchainImageCount = Math.max(Math.min(swapchainImageCount, surfaceCapabilities.maxImageArrayLayers()), surfaceCapabilities.minImageCount());
         surfaceSize = surfaceCapabilities.currentExtent();
         
-        System.out.println("Max Framebuffers: " + surfaceCapabilities.maxImageCount());
+        // The surface may support unlimited swapchain images, denoted by the max being 0. If so, we do not need to make sure its in bounds
+        System.out.println("Expected swapchain count: " + swapchainImageCount);
+        if (surfaceCapabilities.maxImageCount() > 0)
+        {
+            swapchainImageCount = Math.max(Math.min(swapchainImageCount, surfaceCapabilities.maxImageCount()), surfaceCapabilities.minImageCount());
+        }
+        
+        System.out.println("Max swapchain supported: " + surfaceCapabilities.maxImageCount());
+        System.out.println();
         System.out.println("Current Window Size: " + surfaceCapabilities.currentExtent().width() + "x" + surfaceCapabilities.currentExtent().height());
         System.out.println("Max Window Size: " + surfaceCapabilities.maxImageExtent().width() + "x" + surfaceCapabilities.maxImageExtent().height());
         System.out.println();
@@ -275,14 +328,14 @@ public class VulcanRenderer
         EngineUtils.checkError(statusHolder);
         
         
-        colorFormatAndSpace = new ColorFormatAndSpace();
-        colorFormatAndSpace.colorSpace = formats.get(0).colorSpace();
+        surfaceFormat = new ColorFormatAndSpace();
+        surfaceFormat.colorSpace = formats.get(0).colorSpace();
         if (formats.get(0).format() == VK_FORMAT_UNDEFINED)
         {
-            colorFormatAndSpace.colorFormat = VK_FORMAT_B8G8R8_UNORM;
+            surfaceFormat.colorFormat = VK_FORMAT_B8G8R8_UNORM;
         } else
         {
-            colorFormatAndSpace.colorFormat = formats.get(0).format();
+            surfaceFormat.colorFormat = formats.get(0).format();
         }
         
     }
