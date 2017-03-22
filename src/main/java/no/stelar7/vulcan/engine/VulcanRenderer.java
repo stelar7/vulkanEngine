@@ -13,6 +13,7 @@ import static org.lwjgl.glfw.GLFWVulkan.*;
 import static org.lwjgl.system.MemoryUtil.*;
 import static org.lwjgl.vulkan.EXTDebugReport.*;
 import static org.lwjgl.vulkan.KHRSurface.*;
+import static org.lwjgl.vulkan.KHRSwapchain.*;
 import static org.lwjgl.vulkan.VK10.*;
 
 public class VulcanRenderer
@@ -40,6 +41,8 @@ public class VulcanRenderer
     private PointerBuffer instanceExt;
     private PointerBuffer instanceLayers;
     
+    private PointerBuffer deviceExt;
+    
     private static final int VK_API_VERSION         = VK_MAKE_VERSION(1, 0, 3);
     private static final int VK_APPLICATION_VERSION = VK_MAKE_VERSION(0, 1, 0);
     
@@ -47,11 +50,17 @@ public class VulcanRenderer
     private VkDevice         device;
     private VkPhysicalDevice gpu;
     private VkQueue          queue;
+    private VkExtent2D       surfaceSize;
     
-    private VkPhysicalDeviceProperties gpuProperties = VkPhysicalDeviceProperties.create();
-    private VkPhysicalDeviceFeatures   gpuFeatures   = VkPhysicalDeviceFeatures.create();
+    private VkPhysicalDeviceProperties gpuProperties       = VkPhysicalDeviceProperties.create();
+    private VkPhysicalDeviceFeatures   gpuFeatures         = VkPhysicalDeviceFeatures.create();
+    private VkSurfaceCapabilitiesKHR   surfaceCapabilities = VkSurfaceCapabilitiesKHR.create();
     
     private ColorFormatAndSpace colorFormatAndSpace;
+    
+    private int swapchainImageCount = 2;
+    
+    private int statusHolder;
     
     private long debugCallbackHandle = VK_NULL_HANDLE;
     private long commandPoolHandle   = VK_NULL_HANDLE;
@@ -59,6 +68,7 @@ public class VulcanRenderer
     private long semaphoreHandle     = VK_NULL_HANDLE;
     private long surfaceHandle       = VK_NULL_HANDLE;
     private long windowHandle        = VK_NULL_HANDLE;
+    private long swapchainHandle     = VK_NULL_HANDLE;
     
     public VkDevice getDevice()
     {
@@ -99,9 +109,10 @@ public class VulcanRenderer
                 vkDestroyFence(device, fenceHandle, null);
                 vkDestroySemaphore(device, semaphoreHandle, null);
                 vkDestroyCommandPool(device, commandPoolHandle, null);
+                vkDestroySwapchainKHR(device, swapchainHandle, null);
                 vkDestroyDevice(device, null);
                 
-                KHRSurface.vkDestroySurfaceKHR(instance, surfaceHandle, null);
+                vkDestroySurfaceKHR(instance, surfaceHandle, null);
                 
                 vkDestroyDebugReportCallbackEXT(instance, debugCallbackHandle, null);
                 vkDestroyInstance(instance, null);
@@ -137,11 +148,7 @@ public class VulcanRenderer
         glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
         windowHandle = glfwCreateWindow(WIDTH, HEIGHT, TITLE, MemoryUtil.NULL, MemoryUtil.NULL);
         
-        if (debugMode)
-        {
-            setupVkDebug(requiredExtensions);
-        }
-        
+        setupVkDebug(requiredExtensions);
         createVkInstance();
         
         if (debugMode)
@@ -152,6 +159,8 @@ public class VulcanRenderer
         createVkDevice();
         createVkSurface();
         
+        createVkSwapchain();
+        
         createVkFence();
         createVkSemaphore();
         createVkCommandPool();
@@ -161,56 +170,110 @@ public class VulcanRenderer
         
     }
     
+    private void createVkSwapchain()
+    {
+        
+        
+        statusHolder = vkGetPhysicalDeviceSurfacePresentModesKHR(gpu, surfaceHandle, iBuff, null);
+        EngineUtils.checkError(statusHolder);
+        
+        IntBuffer avaliablePresentModes = BufferUtils.createIntBuffer(iBuff.get(0));
+        statusHolder = vkGetPhysicalDeviceSurfacePresentModesKHR(gpu, surfaceHandle, iBuff, avaliablePresentModes);
+        EngineUtils.checkError(statusHolder);
+        
+        int presentMode = VK_PRESENT_MODE_FIFO_KHR;
+        for (int i = 0; i < avaliablePresentModes.remaining(); i++)
+        {
+            // Tripplebuffer vSync
+            if (avaliablePresentModes.get(i) == VK_PRESENT_MODE_MAILBOX_KHR)
+            {
+                presentMode = avaliablePresentModes.get(i);
+            }
+            
+            /*
+            // Doublebuffer vSync
+            if (avaliablePresentModes.get(i) == VK_PRESENT_MODE_FIFO_KHR)
+            {
+                presentMode = avaliablePresentModes.get(i);
+            }
+            
+            // No buffer, no vSync
+            if (avaliablePresentModes.get(i) == VK_PRESENT_MODE_IMMEDIATE_KHR)
+            {
+                presentMode = avaliablePresentModes.get(i);
+            }
+            */
+        }
+        
+        
+        VkSwapchainCreateInfoKHR createInfo = VkSwapchainCreateInfoKHR.create()
+                                                                      .sType(KHRSwapchain.VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR)
+                                                                      .surface(surfaceHandle)
+                                                                      .minImageCount(2)
+                                                                      .imageFormat(colorFormatAndSpace.colorFormat)
+                                                                      .imageColorSpace(colorFormatAndSpace.colorSpace)
+                                                                      .imageExtent(surfaceSize)
+                                                                      .imageArrayLayers(1)
+                                                                      .imageUsage(VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT)
+                                                                      .imageSharingMode(VK_SHARING_MODE_EXCLUSIVE)
+                                                                      .preTransform(VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR)
+                                                                      .compositeAlpha(VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR)
+                                                                      .presentMode(presentMode)
+                                                                      .clipped(true)
+                                                                      .oldSwapchain(VK_NULL_HANDLE);
+        
+        statusHolder = vkCreateSwapchainKHR(device, createInfo, null, lBuff);
+        EngineUtils.checkError(statusHolder);
+        swapchainHandle = lBuff.get(0);
+        
+        statusHolder = vkGetSwapchainImagesKHR(device, swapchainHandle, iBuff, null);
+        EngineUtils.checkError(statusHolder);
+        
+        System.out.println("Requested swapchain count: " + swapchainImageCount);
+        swapchainImageCount = iBuff.get(0);
+        System.out.println("Actual swapchain count: " + swapchainImageCount);
+        System.out.println();
+        
+    }
+    
     private void createVkSurface()
     {
         
-        int status = glfwCreateWindowSurface(instance, windowHandle, null, lBuff);
-        if (status != VK_SUCCESS)
-        {
-            throw new RuntimeException(EngineUtils.vkErrorToString(status));
-        }
+        statusHolder = glfwCreateWindowSurface(instance, windowHandle, null, lBuff);
+        EngineUtils.checkError(statusHolder);
         
         surfaceHandle = lBuff.get(0);
         
         IntBuffer wsiBuffer = BufferUtils.createIntBuffer(1).put(VK_TRUE);
         wsiBuffer.flip();
-        status = vkGetPhysicalDeviceSurfaceSupportKHR(gpu, getDeviceQueueFamilyPropertyIndex(VK_QUEUE_GRAPHICS_BIT), surfaceHandle, wsiBuffer);
-        if (status != VK_SUCCESS)
-        {
-            throw new RuntimeException(EngineUtils.vkErrorToString(status));
-        }
+        statusHolder = vkGetPhysicalDeviceSurfaceSupportKHR(gpu, getDeviceQueueFamilyPropertyIndex(VK_QUEUE_GRAPHICS_BIT), surfaceHandle, wsiBuffer);
+        EngineUtils.checkError(statusHolder);
         
         
-        VkSurfaceCapabilitiesKHR capabilities = VkSurfaceCapabilitiesKHR.create();
-        status = vkGetPhysicalDeviceSurfaceCapabilitiesKHR(gpu, surfaceHandle, capabilities);
-        if (status != VK_SUCCESS)
-        {
-            throw new RuntimeException(EngineUtils.vkErrorToString(status));
-        }
+        statusHolder = vkGetPhysicalDeviceSurfaceCapabilitiesKHR(gpu, surfaceHandle, surfaceCapabilities);
+        EngineUtils.checkError(statusHolder);
         
-        System.out.println("Max Framebuffers: " + capabilities.maxImageCount());
-        System.out.println("Current Window Size: " + capabilities.currentExtent().width() + "x" + capabilities.currentExtent().height());
-        System.out.println("Max Window Size: " + capabilities.maxImageExtent().width() + "x" + capabilities.maxImageExtent().height());
+        swapchainImageCount = Math.max(Math.min(swapchainImageCount, surfaceCapabilities.maxImageArrayLayers()), surfaceCapabilities.minImageCount());
+        surfaceSize = surfaceCapabilities.currentExtent();
+        
+        System.out.println("Max Framebuffers: " + surfaceCapabilities.maxImageCount());
+        System.out.println("Current Window Size: " + surfaceCapabilities.currentExtent().width() + "x" + surfaceCapabilities.currentExtent().height());
+        System.out.println("Max Window Size: " + surfaceCapabilities.maxImageExtent().width() + "x" + surfaceCapabilities.maxImageExtent().height());
         System.out.println();
         
         IntBuffer formatCount = BufferUtils.createIntBuffer(1);
-        status = vkGetPhysicalDeviceSurfaceFormatsKHR(gpu, surfaceHandle, formatCount, null);
-        if (status != VK_SUCCESS)
-        {
-            throw new RuntimeException(EngineUtils.vkErrorToString(status));
-        }
+        statusHolder = vkGetPhysicalDeviceSurfaceFormatsKHR(gpu, surfaceHandle, formatCount, null);
+        EngineUtils.checkError(statusHolder);
         
         if (formatCount.get(0) < 1)
         {
             throw new RuntimeException("No Surface Formats Found");
         }
         
-        VkSurfaceFormatKHR.Buffer formats = VkSurfaceFormatKHR.create(1);
-        status = vkGetPhysicalDeviceSurfaceFormatsKHR(gpu, surfaceHandle, formatCount, formats);
-        if (status != VK_SUCCESS)
-        {
-            throw new RuntimeException(EngineUtils.vkErrorToString(status));
-        }
+        VkSurfaceFormatKHR.Buffer formats = VkSurfaceFormatKHR.create(formatCount.get(0));
+        statusHolder = vkGetPhysicalDeviceSurfaceFormatsKHR(gpu, surfaceHandle, formatCount, formats);
+        EngineUtils.checkError(statusHolder);
+        
         
         colorFormatAndSpace = new ColorFormatAndSpace();
         colorFormatAndSpace.colorSpace = formats.get(0).colorSpace();
@@ -254,21 +317,17 @@ public class VulcanRenderer
                                                                       .level(VK_COMMAND_BUFFER_LEVEL_PRIMARY);
         
         
-        int status = vkAllocateCommandBuffers(device, info, pBuff);
-        if (status != VK_SUCCESS)
-        {
-            throw new RuntimeException(EngineUtils.vkErrorToString(status));
-        }
+        statusHolder = vkAllocateCommandBuffers(device, info, pBuff);
+        EngineUtils.checkError(statusHolder);
+        
         
         VkCommandBuffer commandBuffer = new VkCommandBuffer(pBuff.get(0), device);
         VkCommandBufferBeginInfo beginInfo = VkCommandBufferBeginInfo.create()
                                                                      .sType(VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO);
         
-        status = vkBeginCommandBuffer(commandBuffer, beginInfo);
-        if (status != VK_SUCCESS)
-        {
-            throw new RuntimeException(EngineUtils.vkErrorToString(status));
-        }
+        statusHolder = vkBeginCommandBuffer(commandBuffer, beginInfo);
+        EngineUtils.checkError(statusHolder);
+        
         
         VkViewport.Buffer viewPort = VkViewport.create(1)
                                                .maxDepth(1)
@@ -279,11 +338,8 @@ public class VulcanRenderer
                                                .y(0);
         vkCmdSetViewport(commandBuffer, 0, viewPort);
         
-        status = vkEndCommandBuffer(commandBuffer);
-        if (status != VK_SUCCESS)
-        {
-            throw new RuntimeException(EngineUtils.vkErrorToString(status));
-        }
+        statusHolder = vkEndCommandBuffer(commandBuffer);
+        EngineUtils.checkError(statusHolder);
         
         
         PointerBuffer commandBuff = BufferUtils.createPointerBuffer(1).put(commandBuffer).flip();
@@ -292,17 +348,11 @@ public class VulcanRenderer
                                               .sType(VK_STRUCTURE_TYPE_SUBMIT_INFO)
                                               .pCommandBuffers(commandBuff);
         
-        status = vkQueueSubmit(queue, submitInfo, fenceHandle);
-        if (status != VK_SUCCESS)
-        {
-            throw new RuntimeException(EngineUtils.vkErrorToString(status));
-        }
+        statusHolder = vkQueueSubmit(queue, submitInfo, fenceHandle);
+        EngineUtils.checkError(statusHolder);
         
-        status = vkWaitForFences(device, fenceHandle, false, Long.MAX_VALUE);
-        if (status != VK_SUCCESS)
-        {
-            throw new RuntimeException(EngineUtils.vkErrorToString(status));
-        }
+        statusHolder = vkWaitForFences(device, fenceHandle, false, Long.MAX_VALUE);
+        EngineUtils.checkError(statusHolder);
         
     }
     
@@ -313,12 +363,8 @@ public class VulcanRenderer
                                                                     .queueFamilyIndex(getDeviceQueueFamilyPropertyIndex(VK_QUEUE_GRAPHICS_BIT))
                                                                     .flags(VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT);
         
-        int status = vkCreateCommandPool(device, createInfo, null, lBuff);
-        
-        if (status != VK_SUCCESS)
-        {
-            throw new RuntimeException(EngineUtils.vkErrorToString(status));
-        }
+        statusHolder = vkCreateCommandPool(device, createInfo, null, lBuff);
+        EngineUtils.checkError(statusHolder);
         
         commandPoolHandle = lBuff.get(0);
     }
@@ -326,14 +372,20 @@ public class VulcanRenderer
     private void setupVkDebug(PointerBuffer requiredExtensions)
     {
         instanceLayers = BufferUtils.createPointerBuffer(1);
-        instanceLayers
-                .put(memASCII("VK_LAYER_LUNARG_standard_validation"))
-                .flip();
+        if (debugMode)
+        {
+            instanceLayers.put(memASCII("VK_LAYER_LUNARG_standard_validation"))
+                          .flip();
+        }
         
-        instanceExt = BufferUtils.createPointerBuffer(requiredExtensions.remaining() + 1);
-        instanceExt.put(requiredExtensions)
-                   .put(memASCII("VK_EXT_debug_report"))
-                   .flip();
+        instanceExt = BufferUtils.createPointerBuffer(requiredExtensions.remaining() + 2);
+        instanceExt.put(requiredExtensions);
+        if (debugMode)
+        {
+            instanceExt.put(memASCII("VK_EXT_debug_report"));
+        }
+        instanceExt.flip();
+        
         
     }
     
@@ -355,16 +407,13 @@ public class VulcanRenderer
                                                                                                .flags(VK_DEBUG_REPORT_ERROR_BIT_EXT | VK_DEBUG_REPORT_WARNING_BIT_EXT | VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT)
                                                                                                .pfnCallback(debugCallback);
         
-        int status = vkCreateDebugReportCallbackEXT(instance, debugCreateInfo, null, lBuff);
-        
-        if (status != VK_SUCCESS)
-        {
-            throw new RuntimeException(EngineUtils.vkErrorToString(status));
-        }
+        statusHolder = vkCreateDebugReportCallbackEXT(instance, debugCreateInfo, null, lBuff);
+        EngineUtils.checkError(statusHolder);
         
         debugCallbackHandle = lBuff.get(0);
         
     }
+    
     
     public int getDeviceQueueFamilyPropertyIndex(final int flag)
     {
@@ -400,13 +449,44 @@ public class VulcanRenderer
             vkGetPhysicalDeviceFeatures(gpu, gpuFeatures);
             
             
-            System.out.println("API version: " + EngineUtils.vkVersionToString(gpuProperties.apiVersion()));
-            System.out.println("Driver version: " + EngineUtils.vkVersionToString(gpuProperties.driverVersion()));
-            System.out.println("Vendor ID: " + EngineUtils.vkVendorToString(gpuProperties.vendorID()));
-            System.out.println("Device Name: " + gpuProperties.deviceNameString());
-            System.out.println("Device ID: " + gpuProperties.deviceID());
             System.out.println("Device Type: " + EngineUtils.vkPhysicalDeviceToString(gpuProperties.deviceType()));
+            System.out.println("Vulkan API version: " + EngineUtils.vkVersionToString(gpuProperties.apiVersion()));
+            System.out.println("Driver version: " + EngineUtils.vkVersionToString(gpuProperties.driverVersion()));
+            System.out.println("Vendor ID: " + gpuProperties.vendorID());
+            System.out.println("Device ID: " + gpuProperties.deviceID());
+            System.out.println("Device Name: " + gpuProperties.deviceNameString());
             System.out.println();
+            
+            
+            statusHolder = vkEnumerateDeviceExtensionProperties(gpu, (CharSequence) null, iBuff, null);
+            EngineUtils.checkError(statusHolder);
+            boolean hasSwapchain = false;
+            
+            if (iBuff.get(0) > 0)
+            {
+                VkExtensionProperties.Buffer extensions = VkExtensionProperties.create(iBuff.get(0));
+                statusHolder = vkEnumerateDeviceExtensionProperties(gpu, (CharSequence) null, iBuff, extensions);
+                EngineUtils.checkError(statusHolder);
+                
+                deviceExt = BufferUtils.createPointerBuffer(iBuff.get(0));
+                
+                for (int i = 0; i < iBuff.get(0); i++)
+                {
+                    if (extensions.get(i).extensionNameString().equals(VK_KHR_SWAPCHAIN_EXTENSION_NAME))
+                    {
+                        hasSwapchain = true;
+                    }
+                    deviceExt.put(memASCII(extensions.get(i).extensionNameString()));
+                }
+            }
+            
+            if (!hasSwapchain)
+            {
+                throw new RuntimeException("GPU does not support swapchains!");
+            }
+            
+            deviceExt.flip();
+            
         }
         
         vkEnumerateInstanceLayerProperties(iBuff, null);
@@ -442,13 +522,11 @@ public class VulcanRenderer
         
         VkDeviceCreateInfo deviceCreateInfo = VkDeviceCreateInfo.create()
                                                                 .sType(VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO)
-                                                                .pQueueCreateInfos(queueCreateInfo);
+                                                                .pQueueCreateInfos(queueCreateInfo)
+                                                                .ppEnabledExtensionNames(deviceExt);
         
-        int status = vkCreateDevice(gpu, deviceCreateInfo, null, pBuff);
-        if (status != VK_SUCCESS)
-        {
-            throw new RuntimeException(EngineUtils.vkErrorToString(status));
-        }
+        statusHolder = vkCreateDevice(gpu, deviceCreateInfo, null, pBuff);
+        EngineUtils.checkError(statusHolder);
         
         device = new VkDevice(pBuff.get(0), gpu, deviceCreateInfo);
         
@@ -459,6 +537,8 @@ public class VulcanRenderer
     
     private void createVkInstance()
     {
+        
+        
         VkApplicationInfo appInfo = VkApplicationInfo.create()
                                                      .sType(VK_STRUCTURE_TYPE_APPLICATION_INFO)
                                                      .apiVersion(VK_API_VERSION)
@@ -475,12 +555,8 @@ public class VulcanRenderer
         }
         
         
-        int status = vkCreateInstance(createInfo, null, pBuff);
-        
-        if (status != VK_SUCCESS)
-        {
-            throw new RuntimeException(EngineUtils.vkErrorToString(status));
-        }
+        statusHolder = vkCreateInstance(createInfo, null, pBuff);
+        EngineUtils.checkError(statusHolder);
         
         instance = new VkInstance(pBuff.get(0), createInfo);
     }
