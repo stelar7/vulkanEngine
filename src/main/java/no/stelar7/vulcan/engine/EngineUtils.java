@@ -145,7 +145,6 @@ public final class EngineUtils
     
     public static int findMemoryTypeIndex(VkPhysicalDeviceMemoryProperties gpuMemory, VkMemoryRequirements requirements, int requiredProperties)
     {
-        int memoryIndex = -1;
         for (int i = 0; i < gpuMemory.memoryTypeCount(); i++)
         {
             if ((requirements.memoryTypeBits() & (1 << i)) == (1 << i))

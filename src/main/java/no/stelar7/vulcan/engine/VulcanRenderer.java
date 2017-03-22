@@ -30,10 +30,8 @@ public class VulcanRenderer
         protected int colorSpace;
     }
     
-    
     private final Object lock = new Object();
     private boolean shouldClose;
-    private boolean debugMode = true;
     
     private PointerBuffer pBuff = BufferUtils.createPointerBuffer(1);
     private IntBuffer     iBuff = BufferUtils.createIntBuffer(1);
@@ -168,13 +166,9 @@ public class VulcanRenderer
         glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
         windowHandle = glfwCreateWindow(WIDTH, HEIGHT, TITLE, MemoryUtil.NULL, MemoryUtil.NULL);
         
-        setupVkDebug(requiredExtensions);
+        setupInstance(requiredExtensions);
         createVkInstance();
-        
-        if (debugMode)
-        {
-            createVkDebug();
-        }
+        createVkDebug();
         
         createVkDevice();
         createVkSurface();
@@ -528,24 +522,17 @@ public class VulcanRenderer
         commandPoolHandle = lBuff.get(0);
     }
     
-    private void setupVkDebug(PointerBuffer requiredExtensions)
+    private void setupInstance(PointerBuffer requiredExtensions)
     {
         instanceLayers = BufferUtils.createPointerBuffer(1);
-        if (debugMode)
-        {
-            instanceLayers.put(memASCII("VK_LAYER_LUNARG_standard_validation"))
-                          .flip();
-        }
+        instanceLayers.put(memASCII("VK_LAYER_LUNARG_standard_validation"));
+        instanceLayers.flip();
         
-        instanceExt = BufferUtils.createPointerBuffer(requiredExtensions.remaining() + 2);
+        
+        instanceExt = BufferUtils.createPointerBuffer(requiredExtensions.remaining() + 1);
         instanceExt.put(requiredExtensions);
-        if (debugMode)
-        {
-            instanceExt.put(memASCII("VK_EXT_debug_report"));
-        }
+        instanceExt.put(memASCII("VK_EXT_debug_report"));
         instanceExt.flip();
-        
-        
     }
     
     private void createVkDebug()
@@ -565,6 +552,7 @@ public class VulcanRenderer
                                                                                                .sType(VK_STRUCTURE_TYPE_DEBUG_REPORT_CALLBACK_CREATE_INFO_EXT)
                                                                                                .flags(VK_DEBUG_REPORT_ERROR_BIT_EXT | VK_DEBUG_REPORT_WARNING_BIT_EXT | VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT)
                                                                                                .pfnCallback(debugCallback);
+        
         
         statusHolder = vkCreateDebugReportCallbackEXT(instance, debugCreateInfo, null, lBuff);
         EngineUtils.checkError(statusHolder);
@@ -615,6 +603,8 @@ public class VulcanRenderer
             System.out.println("Vendor ID: " + gpuProperties.vendorID());
             System.out.println("Device ID: " + gpuProperties.deviceID());
             System.out.println("Device Name: " + gpuProperties.deviceNameString());
+            System.out.println("Device Memory: " + gpuMemory.memoryHeaps(0).size() / 1_000_000_000f + "GB");
+            System.out.println("Host Memory: " + gpuMemory.memoryHeaps(1).size() / 1_000_000_000f + "GB");
             System.out.println();
             
             
@@ -707,12 +697,9 @@ public class VulcanRenderer
         
         VkInstanceCreateInfo createInfo = VkInstanceCreateInfo.create()
                                                               .sType(VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO)
-                                                              .pApplicationInfo(appInfo);
-        if (debugMode)
-        {
-            createInfo.ppEnabledExtensionNames(instanceExt)
-                      .ppEnabledLayerNames(instanceLayers);
-        }
+                                                              .pApplicationInfo(appInfo)
+                                                              .ppEnabledExtensionNames(instanceExt)
+                                                              .ppEnabledLayerNames(instanceLayers);
         
         
         statusHolder = vkCreateInstance(createInfo, null, pBuff);
