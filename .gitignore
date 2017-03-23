@@ -1,3 +1,4 @@
 /target
 *.iml
 *.log
+/src/main/java/META-INF
