@@ -1,6 +1,5 @@
 package no.stelar7.vulcan.engine;
 
-import org.lwjgl.*;
 import org.lwjgl.system.*;
 import org.lwjgl.vulkan.*;
 
@@ -135,6 +134,9 @@ public class Window
         surfaceSize.free();
         surfaceCapabilities.free();
         
+        MemoryUtil.memFree(swapchainViewBuffer);
+        MemoryUtil.memFree(frameBuffer);
+        
         destroySync();
         destroyFramebuffers();
         destroyRenderPass();
@@ -234,7 +236,7 @@ public class Window
     {
         try (MemoryStack stack = MemoryStack.stackPush())
         {
-            frameBuffer = BufferUtils.createLongBuffer(swapchainImageCount);
+            frameBuffer = MemoryUtil.memAllocLong(swapchainImageCount);
             LongBuffer framebufferBuffer = stack.callocLong(1);
             
             for (int i = 0; i < swapchainImageCount; i++)
@@ -401,13 +403,13 @@ public class Window
     
     private void createSwapchainImages()
     {
-        LongBuffer imageBuffer = BufferUtils.createLongBuffer(swapchainImageCount);
-        IntBuffer  ibuff       = BufferUtils.createIntBuffer(swapchainImageCount).put(0, swapchainImageCount);
         try (MemoryStack stack = MemoryStack.stackPush())
         {
-            swapchainViewBuffer = BufferUtils.createLongBuffer(swapchainImageCount);
             
-            EngineUtils.checkError(vkGetSwapchainImagesKHR(renderer.getDevice(), swapchainHandle, ibuff, imageBuffer));
+            LongBuffer imageBuffer = stack.callocLong(swapchainImageCount);
+            swapchainViewBuffer = MemoryUtil.memAllocLong(swapchainImageCount);
+            
+            EngineUtils.checkError(vkGetSwapchainImagesKHR(renderer.getDevice(), swapchainHandle, stack.ints(swapchainImageCount), imageBuffer));
             
             VkComponentMapping mapping = VkComponentMapping.callocStack(stack)
                                                            .r(VK_COMPONENT_SWIZZLE_IDENTITY)
