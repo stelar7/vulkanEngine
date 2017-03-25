@@ -74,9 +74,12 @@ public class Window
         this.surfaceSize.width(width).height(height);
         this.windowName = name;
         
-        
         createWindow();
         createSurface();
+    }
+    
+    public void init()
+    {
         createSwapchain();
         createSwapchainImages();
         createDepthStencilImage();
@@ -197,10 +200,10 @@ public class Window
         
         GLFWErrorCallback.createPrint().set();
         glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+        glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
         
         windowHandle = glfwCreateWindow(surfaceSize.width(), surfaceSize.height(), windowName, MemoryUtil.NULL, MemoryUtil.NULL);
         glfwGetFramebufferSize(windowHandle, widthBuffer, heightBuffer);
-        
         
         surfaceSize.width(widthBuffer.get(0));
         surfaceSize.height(heightBuffer.get(0));
@@ -426,9 +429,11 @@ public class Window
         IntBuffer avaliablePresentModes = BufferUtils.createIntBuffer(iBuff.get(0));
         EngineUtils.checkError(vkGetPhysicalDeviceSurfacePresentModesKHR(renderer.getPhysicalDevice(), surfaceHandle, iBuff, avaliablePresentModes));
         
+        // FIFO = v-sync
         int presentMode = VK_PRESENT_MODE_FIFO_KHR;
         for (int i = 0; i < avaliablePresentModes.remaining(); i++)
         {
+            // mailbox = not v-sync
             if (avaliablePresentModes.get(i) == VK_PRESENT_MODE_MAILBOX_KHR)
             {
                 presentMode = avaliablePresentModes.get(i);
@@ -457,30 +462,23 @@ public class Window
         
         EngineUtils.checkError(vkGetSwapchainImagesKHR(renderer.getDevice(), swapchainHandle, iBuff, null));
         
-        System.out.println("Requested swapchain count: " + swapchainImageCount);
+        System.out.println("Adjusted request swapchain count: " + swapchainImageCount);
         swapchainImageCount = iBuff.get(0);
-        System.out.println("Actual swapchain count: " + swapchainImageCount);
+        System.out.println("Recived swapchain count: " + swapchainImageCount);
         System.out.println();
         
     }
     
     private void createSurface()
     {
-        
         EngineUtils.checkError(glfwCreateWindowSurface(renderer.getInstance(), windowHandle, null, lBuff));
-        
         surfaceHandle = lBuff.get(0);
-        
-        IntBuffer wsiBuffer = BufferUtils.createIntBuffer(1).put(VK_TRUE);
-        wsiBuffer.flip();
-        EngineUtils.checkError(vkGetPhysicalDeviceSurfaceSupportKHR(renderer.getPhysicalDevice(), renderer.getDeviceQueueFamilyPropertyIndex(VK_QUEUE_GRAPHICS_BIT), surfaceHandle, wsiBuffer));
-        
         
         EngineUtils.checkError(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(renderer.getPhysicalDevice(), surfaceHandle, surfaceCapabilities));
         surfaceSize = surfaceCapabilities.currentExtent();
         
         // The surface may support unlimited swapchain images, denoted by the max being 0. If so, we do not need to make sure its in bounds
-        System.out.println("Expected swapchain count: " + swapchainImageCount);
+        System.out.println("Requested swapchain count: " + swapchainImageCount);
         if (surfaceCapabilities.maxImageCount() > 0)
         {
             swapchainImageCount = Math.max(Math.min(swapchainImageCount, surfaceCapabilities.maxImageCount()), surfaceCapabilities.minImageCount());
@@ -490,6 +488,23 @@ public class Window
         System.out.println();
         System.out.println("Current Window Size: " + surfaceCapabilities.currentExtent().width() + "x" + surfaceCapabilities.currentExtent().height());
         System.out.println("Max Window Size: " + surfaceCapabilities.maxImageExtent().width() + "x" + surfaceCapabilities.maxImageExtent().height());
+        System.out.println();
+        
+        
+        if (!EngineUtils.hasFlag(surfaceCapabilities.supportedUsageFlags(), VK_IMAGE_USAGE_TRANSFER_DST_BIT))
+        {
+            throw new RuntimeException("VK_IMAGE_USAGE_TRANSFER_DST_BIT not supported by swapchain");
+        }
+        
+        System.out.println("Supported swapchain image uses:");
+        EngineUtils.hasFlag(surfaceCapabilities.supportedUsageFlags(), VK_IMAGE_USAGE_TRANSFER_SRC_BIT, "VK_IMAGE_USAGE_TRANSFER_SRC");
+        EngineUtils.hasFlag(surfaceCapabilities.supportedUsageFlags(), VK_IMAGE_USAGE_TRANSFER_DST_BIT, "VK_IMAGE_USAGE_TRANSFER_DST");
+        EngineUtils.hasFlag(surfaceCapabilities.supportedUsageFlags(), VK_IMAGE_USAGE_SAMPLED_BIT, "VK_IMAGE_USAGE_SAMPLED");
+        EngineUtils.hasFlag(surfaceCapabilities.supportedUsageFlags(), VK_IMAGE_USAGE_STORAGE_BIT, "VK_IMAGE_USAGE_STORAGE");
+        EngineUtils.hasFlag(surfaceCapabilities.supportedUsageFlags(), VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, "VK_IMAGE_USAGE_COLOR_ATTACHMENT");
+        EngineUtils.hasFlag(surfaceCapabilities.supportedUsageFlags(), VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, "VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT");
+        EngineUtils.hasFlag(surfaceCapabilities.supportedUsageFlags(), VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT, "VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT");
+        EngineUtils.hasFlag(surfaceCapabilities.supportedUsageFlags(), VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT, "VK_IMAGE_USAGE_INPUT_ATTACHMENT");
         System.out.println();
         
         IntBuffer formatCount = BufferUtils.createIntBuffer(1);
@@ -503,20 +518,37 @@ public class Window
         VkSurfaceFormatKHR.Buffer formats = VkSurfaceFormatKHR.create(formatCount.get(0));
         EngineUtils.checkError(vkGetPhysicalDeviceSurfaceFormatsKHR(renderer.getPhysicalDevice(), surfaceHandle, formatCount, formats));
         
-        
+        System.out.println("Supported surface color format count: " + formatCount.get(0));
         surfaceFormat = new ColorFormatSpace();
-        surfaceFormat.setColorSpace(formats.get(0).colorSpace());
-        if (formats.get(0).format() == VK_FORMAT_UNDEFINED)
+        if (formatCount.get(0) == 1 && formats.get(0).format() == VK_FORMAT_UNDEFINED)
         {
-            surfaceFormat.setColorFormat(VK_FORMAT_B8G8R8_UNORM);
+            surfaceFormat.set(VK_FORMAT_B8G8R8A8_UNORM, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR);
         } else
         {
-            surfaceFormat.setColorFormat(formats.get(0).format());
+            for (int i = 0; i < formats.remaining(); i++)
+            {
+                VkSurfaceFormatKHR currentFormat = formats.get(i);
+                if (currentFormat.format() == VK_FORMAT_B8G8R8A8_UNORM)
+                {
+                    surfaceFormat.set(currentFormat);
+                    break;
+                }
+            }
         }
+        
+        // TODO: There might be other values, but hardcode this for now...
+        System.out.println("Selected surface color format: VK_FORMAT_B8G8R8A8_UNORM");
+        System.out.println("Selected surface color space: VK_COLOR_SPACE_SRGB_NONLINEAR_KHR");
+        System.out.println();
     }
     
     public VkExtent2D getSurfaceSize()
     {
         return surfaceSize;
+    }
+    
+    public String getTitle()
+    {
+        return windowName;
     }
 }

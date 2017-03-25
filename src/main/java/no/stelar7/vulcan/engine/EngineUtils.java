@@ -22,15 +22,15 @@ public final class EngineUtils
         switch (result)
         {
             case 0:
-                return "VK_PHYSICAL_DEVICE_TYPE_OTHER";
+                return "The device does not match any other available types (VK_PHYSICAL_DEVICE_TYPE_OTHER)";
             case 1:
-                return "VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU";
+                return "The device is typically one embedded in or tightly coupled with the host (VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU)";
             case 2:
-                return "VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU";
+                return "The device is typically a separate processor connected to the host via an interlink (VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)";
             case 3:
-                return "VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU";
+                return "The device is typically a virtual node in a virtualization environment (VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU)";
             case 4:
-                return "VK_PHYSICAL_DEVICE_TYPE_CPU";
+                return "The device is typically running on the same processors as the host (VK_PHYSICAL_DEVICE_TYPE_CPU)";
             
             default:
                 return "Unknown Device Type";
@@ -99,40 +99,54 @@ public final class EngineUtils
         int major = i >>> 22;
         int patch = i & 0xfff;
         
-        // This needs another 2 bits shifted for some reason...
+        // We get 2 bits to many, so we need to shift them out
         int minor = ((i >>> 12) & 0x3ff) >>> 2;
         
         
         return String.format("%d.%d.%d", major, minor, patch);
     }
     
+    public static boolean hasFlag(int value, int flag, String... print)
+    {
+        boolean has = (value & flag) == flag;
+        
+        if (has)
+        {
+            for (String data : print)
+            {
+                System.out.println(data);
+            }
+        }
+        
+        return has;
+    }
+    
     
     public static String vkDebugFlagToString(int flags)
     {
-        StringBuilder sb = new StringBuilder();
-        if ((flags & VK_DEBUG_REPORT_INFORMATION_BIT_EXT) == VK_DEBUG_REPORT_INFORMATION_BIT_EXT)
+        if (hasFlag(flags, VK_DEBUG_REPORT_INFORMATION_BIT_EXT))
         {
-            sb.append("INFO");
+            return "INFO";
         }
-        if ((flags & VK_DEBUG_REPORT_WARNING_BIT_EXT) == VK_DEBUG_REPORT_WARNING_BIT_EXT)
+        if (hasFlag(flags, VK_DEBUG_REPORT_WARNING_BIT_EXT))
         {
-            sb.append("WARNING");
-            
+            return "WARNING";
         }
-        if ((flags & VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT) == VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT)
+        if (hasFlag(flags, VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT))
         {
-            sb.append("PERFORMANCE");
+            return "PERFORMANCE";
         }
-        if ((flags & VK_DEBUG_REPORT_ERROR_BIT_EXT) == VK_DEBUG_REPORT_ERROR_BIT_EXT)
+        if (hasFlag(flags, VK_DEBUG_REPORT_ERROR_BIT_EXT))
         {
-            sb.append("ERROR");
-            
+            return "ERROR";
         }
-        if ((flags & VK_DEBUG_REPORT_DEBUG_BIT_EXT) == VK_DEBUG_REPORT_DEBUG_BIT_EXT)
+        if (hasFlag(flags, VK_DEBUG_REPORT_DEBUG_BIT_EXT))
         {
-            sb.append("DEBUG");
+            return "DEBUG";
         }
-        return sb.toString();
+        
+        return "Unknown";
+        
     }
     
     public static void checkError(int status)

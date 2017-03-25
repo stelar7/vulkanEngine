@@ -15,13 +15,11 @@ public class TestGame extends Game
     }
     
     private PointerBuffer pBuff = BufferUtils.createPointerBuffer(1);
-    private IntBuffer     iBuff = BufferUtils.createIntBuffer(1);
     private LongBuffer    lBuff = BufferUtils.createLongBuffer(1);
     
     private long       commandPoolHandle       = VK_NULL_HANDLE;
     private LongBuffer renderCompleteSemaphore = BufferUtils.createLongBuffer(1);
     
-    private float sinColor;
     
     private VkCommandBuffer commandBuffer;
     
@@ -29,7 +27,7 @@ public class TestGame extends Game
     @Override
     public void update()
     {
-        sinColor += 0.001f;
+        
     }
     
     @Override
@@ -48,11 +46,7 @@ public class TestGame extends Game
                                                                       .depth(0)
                                                                       .stencil(0);
         
-        VkClearColorValue clearValue = VkClearColorValue.create();
-        clearValue.float32(0, 1);
-        clearValue.float32(1, 0);
-        clearValue.float32(2, 0);
-        clearValue.float32(3, 1);
+        VkClearColorValue clearValue = VkClearColorValue.create().float32(0, 1).float32(1, 1).float32(2, 0).float32(3, 1);
         
         VkClearValue.Buffer clears = VkClearValue.create(2);
         clears.get(0).depthStencil(depthValue);
@@ -65,7 +59,7 @@ public class TestGame extends Game
                                                                    .framebuffer(renderer.getWindow().getActiveFramebuffer())
                                                                    .renderArea(area)
                                                                    .pClearValues(clears);
-    
+        
         vkCmdBeginRenderPass(commandBuffer, passBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
         
         vkCmdEndRenderPass(commandBuffer);
@@ -126,7 +120,7 @@ public class TestGame extends Game
     {
         VkCommandPoolCreateInfo createInfo = VkCommandPoolCreateInfo.create()
                                                                     .sType(VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO)
-                                                                    .queueFamilyIndex(renderer.getDeviceQueueFamilyPropertyIndex(VK_QUEUE_GRAPHICS_BIT))
+                                                                    .queueFamilyIndex(renderer.getGraphicsQueueIndex())
                                                                     .flags(VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT | VK_COMMAND_POOL_CREATE_TRANSIENT_BIT);
         
         EngineUtils.checkError(vkCreateCommandPool(renderer.getDevice(), createInfo, null, lBuff));
