@@ -124,6 +124,7 @@ public final class EngineUtils
     
     public static String vkDebugFlagToString(int flags)
     {
+        
         if (hasFlag(flags, VK_DEBUG_REPORT_INFORMATION_BIT_EXT))
         {
             return "INFO";
@@ -172,4 +173,26 @@ public final class EngineUtils
         throw new RuntimeException("No memory matching required type found");
     }
     
+    public static String vkFormatToString(int format)
+    {
+        switch (format)
+        {
+            case 44:
+                return "VK_FORMAT_B8G8R8A8_UNORM";
+            default:
+                return "UNKNOWN " + format;
+        }
+        
+    }
+    
+    public static String vkColorSpaceToString(int colorspace)
+    {
+        switch (colorspace)
+        {
+            case 0:
+                return "VK_COLOR_SPACE_SRGB_NONLINEAR_KHR";
+            default:
+                return "UNKNOWN " + colorspace;
+        }
+    }
 }
