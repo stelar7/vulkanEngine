@@ -22,10 +22,6 @@ public class VulkanRenderer
     private final Object lock = new Object();
     private boolean shouldClose;
     
-    private PointerBuffer instanceExt;
-    private PointerBuffer deviceExt;
-    
-    private PointerBuffer instanceLayers;
     
     private Window window;
     
@@ -41,12 +37,12 @@ public class VulkanRenderer
     
     private VkInstance       instance;
     private VkDevice         device;
-    private VkPhysicalDevice gpu;
+    private VkPhysicalDevice physicalDevice;
     private VkQueue          queue;
     
-    private VkPhysicalDeviceProperties       gpuProperties = VkPhysicalDeviceProperties.calloc();
-    private VkPhysicalDeviceFeatures         gpuFeatures   = VkPhysicalDeviceFeatures.calloc();
-    private VkPhysicalDeviceMemoryProperties gpuMemory     = VkPhysicalDeviceMemoryProperties.calloc();
+    private VkPhysicalDeviceProperties       gpuProperties = VkPhysicalDeviceProperties.malloc();
+    private VkPhysicalDeviceFeatures         gpuFeatures   = VkPhysicalDeviceFeatures.malloc();
+    private VkPhysicalDeviceMemoryProperties gpuMemory     = VkPhysicalDeviceMemoryProperties.malloc();
     
     public VkPhysicalDeviceProperties getGpuProperties()
     {
@@ -75,7 +71,7 @@ public class VulkanRenderer
     
     public VkPhysicalDevice getPhysicalDevice()
     {
-        return gpu;
+        return physicalDevice;
     }
     
     public VkQueue getRenderQueue()
@@ -86,27 +82,259 @@ public class VulkanRenderer
     public VulkanRenderer(int width, int height, String title)
     {
         initGLFW();
-        initVulkan();
-        window = new Window(this, width, height, title);
-        getDeviceQueueFamilyPropertyIndecies();
-        createVkDevice();
-        window.init();
+        initVulkan(width, height, title);
     }
     
-    private void initVulkan()
+    private void initVulkan(int width, int height, String title)
     {
-        PointerBuffer requiredExtensions = glfwGetRequiredInstanceExtensions();
-        if (requiredExtensions == null)
+        
+        try (MemoryStack stack = MemoryStack.stackPush())
         {
-            throw new RuntimeException("Failed to get required extensions");
+            
+            PointerBuffer requiredExtensions = glfwGetRequiredInstanceExtensions();
+            if (requiredExtensions == null)
+            {
+                throw new RuntimeException("Failed to get required extensions");
+            }
+            
+            PointerBuffer validationLayers = stack.mallocPointer(1);
+            PointerBuffer deviceExt        = stack.mallocPointer(1);
+            PointerBuffer instanceExt      = stack.mallocPointer(requiredExtensions.remaining() + 1);
+            
+            validationLayers.put(memASCII("VK_LAYER_LUNARG_standard_validation"));
+            validationLayers.flip();
+            
+            deviceExt.put(memASCII("VK_KHR_swapchain"));
+            deviceExt.flip();
+            
+            instanceExt.put(requiredExtensions);
+            instanceExt.put(memASCII("VK_EXT_debug_report"));
+            instanceExt.flip();
+            
+            instance = createVkInstance(validationLayers, instanceExt);
+            
+            int debugFlags = VK_DEBUG_REPORT_ERROR_BIT_EXT | VK_DEBUG_REPORT_WARNING_BIT_EXT | VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT;
+            debugCallbackHandle = createVkDebug(debugFlags);
+            
+            physicalDevice = createPhysicalDevice(instance);
+            getPhysicalDeviceProperties(physicalDevice);
+            getPhysicalDeviceMemoryProperties(physicalDevice);
+            getLayerProperties(physicalDevice);
+            
+            if (!supportsSwapchain(physicalDevice))
+            {
+                throw new RuntimeException("Physical device does not support swapchains");
+            }
+            
+            
+            window = createWindow(title, width, height);
+            window.createSurface(instance);
+            
+            graphicsQueueIndex = getQueueFamily(physicalDevice);
+            presentQueueIndex = getQueueFamily(physicalDevice);
+            
+            device = createDevice(physicalDevice, graphicsQueueIndex, validationLayers, deviceExt);
+            queue = getQueue(device, graphicsQueueIndex, 0);
+            
+            window.getSurfaceFormat(physicalDevice);
+            window.createSwapchain(physicalDevice, device);
+            window.createSwapchainImageViews(device);
+            
+            window.createRenderPass(device);
+            window.createFramebuffers(device);
+            
+            // initShaderModule
+        }
+    }
+    
+    private VkQueue getQueue(VkDevice device, int queueFamilyIndex, int index)
+    {
+        try (MemoryStack stack = MemoryStack.stackPush())
+        {
+            PointerBuffer pointer = stack.mallocPointer(1);
+            vkGetDeviceQueue(device, queueFamilyIndex, index, pointer);
+            queue = new VkQueue(pointer.get(0), device);
+            
+            return queue;
+        }
+    }
+    
+    private VkDevice createDevice(VkPhysicalDevice physicalDevice, int queueFamiliyIndex, PointerBuffer validationLayers, PointerBuffer deviceExt)
+    {
+        try (MemoryStack stack = MemoryStack.stackPush())
+        {
+            vkGetPhysicalDeviceFeatures(physicalDevice, gpuFeatures);
+            
+            return createDevice(physicalDevice, gpuFeatures, queueFamiliyIndex, validationLayers, deviceExt);
+        }
+    }
+    
+    private VkDevice createDevice(VkPhysicalDevice physicalDevice, VkPhysicalDeviceFeatures features, int graphicsQueueIndex, PointerBuffer validationLayers, PointerBuffer deviceExt)
+    {
+        try (MemoryStack stack = MemoryStack.stackPush())
+        {
+            VkDeviceQueueCreateInfo.Buffer queueCreateInfo = VkDeviceQueueCreateInfo.mallocStack(1, stack)
+                                                                                    .sType(VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO)
+                                                                                    .pNext(VK_NULL_HANDLE)
+                                                                                    .flags(0)
+                                                                                    .queueFamilyIndex(graphicsQueueIndex)
+                                                                                    .pQueuePriorities(stack.floats(1));
+            
+            
+            VkDeviceCreateInfo deviceCreateInfo = VkDeviceCreateInfo.mallocStack(stack)
+                                                                    .sType(VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO)
+                                                                    .pNext(VK_NULL_HANDLE)
+                                                                    .flags(0)
+                                                                    .pQueueCreateInfos(queueCreateInfo)
+                                                                    .ppEnabledLayerNames(validationLayers)
+                                                                    .ppEnabledExtensionNames(deviceExt)
+                                                                    .pEnabledFeatures(features);
+            
+            PointerBuffer deviceBuffer = stack.mallocPointer(1);
+            
+            EngineUtils.checkError(vkCreateDevice(physicalDevice, deviceCreateInfo, null, deviceBuffer));
+            device = new VkDevice(deviceBuffer.get(0), physicalDevice, deviceCreateInfo);
+            
+            return device;
+        }
+    }
+    
+    private int getQueueFamily(VkPhysicalDevice physicalDevice)
+    {
+        VkQueueFamilyProperties.Buffer families = getQueueFamilyProperties(physicalDevice);
+        
+        for (int i = 0; i < families.remaining(); i++)
+        {
+            families.position(i);
+            if (EngineUtils.hasFlag(families.queueFlags(), VK_QUEUE_GRAPHICS_BIT))
+            {
+                if (hasPresentationSupport(physicalDevice, i))
+                {
+                    presentQueueIndex = graphicsQueueIndex = i;
+                    break;
+                }
+            }
         }
         
+        return graphicsQueueIndex;
         
-        setupInstance(requiredExtensions);
-        createVkInstance();
-        createVkDebug();
-        createPhysicalDevice();
     }
+    
+    private boolean hasPresentationSupport(VkPhysicalDevice physicalDevice, int index)
+    {
+        try (MemoryStack stack = MemoryStack.stackPush())
+        {
+            IntBuffer surfaceSupports = stack.mallocInt(1);
+            EngineUtils.checkError(KHRSurface.vkGetPhysicalDeviceSurfaceSupportKHR(physicalDevice, index, window.getSurfaceHandle(), surfaceSupports));
+            
+            return surfaceSupports.get(0) == VK_TRUE;
+        }
+    }
+    
+    private VkQueueFamilyProperties.Buffer getQueueFamilyProperties(VkPhysicalDevice physicalDevice)
+    {
+        try (MemoryStack stack = MemoryStack.stackPush())
+        {
+            IntBuffer familyCount = stack.mallocInt(1);
+            vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, familyCount, null);
+            
+            
+            VkQueueFamilyProperties.Buffer queueFamily = VkQueueFamilyProperties.mallocStack(familyCount.get(0), stack);
+            vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, familyCount, queueFamily);
+            
+            return queueFamily;
+        }
+    }
+    
+    private VkPhysicalDeviceMemoryProperties getPhysicalDeviceMemoryProperties(VkPhysicalDevice physicalDevice)
+    {
+        vkGetPhysicalDeviceMemoryProperties(physicalDevice, gpuMemory);
+        
+        System.out.println("Memory Information:");
+        System.out.println("Device Memory: " + gpuMemory.memoryHeaps(0).size() / 1_000_000_000f + "GB");
+        System.out.println("Host Memory: " + gpuMemory.memoryHeaps(1).size() / 1_000_000_000f + "GB");
+        System.out.println();
+        
+        return gpuMemory;
+    }
+    
+    private void getLayerProperties(VkPhysicalDevice physicalDevice)
+    {
+        try (MemoryStack stack = MemoryStack.stackPush())
+        {
+            IntBuffer deviceBuffer = stack.mallocInt(1);
+            vkEnumerateInstanceLayerProperties(deviceBuffer, null);
+            VkLayerProperties.Buffer layerProperties = VkLayerProperties.mallocStack(deviceBuffer.get(0), stack);
+            vkEnumerateInstanceLayerProperties(deviceBuffer, layerProperties);
+            
+            System.out.println("Instance Layers:");
+            for (int i = 0; i < layerProperties.capacity(); i++)
+            {
+                System.out.format("%-40s \t | \t %s%n", layerProperties.get(i).layerNameString(), layerProperties.get(i).descriptionString());
+            }
+            System.out.println();
+            
+            vkEnumerateDeviceLayerProperties(physicalDevice, deviceBuffer, null);
+            layerProperties = VkLayerProperties.mallocStack(deviceBuffer.get(0), stack);
+            vkEnumerateDeviceLayerProperties(physicalDevice, deviceBuffer, layerProperties);
+            
+            System.out.println("Device Layers:");
+            for (int i = 0; i < layerProperties.capacity(); i++)
+            {
+                System.out.format("%-40s \t | \t %s%n", layerProperties.get(i).layerNameString(), layerProperties.get(i).descriptionString());
+            }
+            System.out.println();
+        }
+    }
+    
+    private boolean supportsSwapchain(VkPhysicalDevice physicalDevice)
+    {
+        try (MemoryStack stack = MemoryStack.stackPush())
+        {
+            IntBuffer extensionCount = stack.mallocInt(1);
+            EngineUtils.checkError(vkEnumerateDeviceExtensionProperties(physicalDevice, (CharSequence) null, extensionCount, null));
+            boolean hasSwapchain = false;
+            
+            System.out.println("Supported GPU Extensions:");
+            
+            if (extensionCount.get(0) > 0)
+            {
+                VkExtensionProperties.Buffer extensions = VkExtensionProperties.mallocStack(extensionCount.get(0), stack);
+                EngineUtils.checkError(vkEnumerateDeviceExtensionProperties(physicalDevice, (CharSequence) null, extensionCount, extensions));
+                
+                for (int i = 0; i < extensionCount.get(0); i++)
+                {
+                    extensions.position(i);
+                    System.out.println(extensions.extensionNameString());
+                    
+                    if (extensions.extensionNameString().equals(VK_KHR_SWAPCHAIN_EXTENSION_NAME))
+                    {
+                        hasSwapchain = true;
+                    }
+                }
+            }
+            System.out.println();
+            
+            return hasSwapchain;
+        }
+    }
+    
+    private VkPhysicalDeviceProperties getPhysicalDeviceProperties(VkPhysicalDevice physicalDevice)
+    {
+        vkGetPhysicalDeviceProperties(physicalDevice, gpuProperties);
+        
+        System.out.println("System Information:");
+        System.out.println("Device Type: " + EngineUtils.vkPhysicalDeviceToString(gpuProperties.deviceType()));
+        System.out.println("Vulkan API version: " + EngineUtils.vkVersionToString(gpuProperties.apiVersion()));
+        System.out.println("Driver version: " + EngineUtils.vkVersionToString(gpuProperties.driverVersion()));
+        System.out.println("Vendor ID: " + gpuProperties.vendorID());
+        System.out.println("Device ID: " + gpuProperties.deviceID());
+        System.out.println("Device Name: " + gpuProperties.deviceNameString());
+        System.out.println();
+        
+        return gpuProperties;
+    }
+    
     
     public void start()
     {
@@ -131,14 +359,11 @@ public class VulkanRenderer
             
             synchronized (lock)
             {
-                instanceLayers.free();
-                instanceExt.free();
-                deviceExt.free();
                 gpuProperties.free();
                 gpuFeatures.free();
                 gpuMemory.free();
                 
-                window.destroy();
+                window.destroy(instance, device);
                 vkDestroyDevice(device, null);
                 
                 vkDestroyDebugReportCallbackEXT(instance, debugCallbackHandle, null);
@@ -168,20 +393,7 @@ public class VulkanRenderer
     }
     
     
-    private void setupInstance(PointerBuffer requiredExtensions)
-    {
-        instanceLayers = MemoryStack.stackMallocPointer(1);
-        instanceLayers.put(memASCII("VK_LAYER_LUNARG_standard_validation"));
-        instanceLayers.flip();
-        
-        
-        instanceExt = MemoryStack.stackMallocPointer(requiredExtensions.remaining() + 1);
-        instanceExt.put(requiredExtensions);
-        instanceExt.put(memASCII("VK_EXT_debug_report"));
-        instanceExt.flip();
-    }
-    
-    private void createVkDebug()
+    private long createVkDebug(int debugFlags)
     {
         try (MemoryStack stack = MemoryStack.stackPush())
         {
@@ -196,229 +408,73 @@ public class VulkanRenderer
                 }
             };
             
-            VkDebugReportCallbackCreateInfoEXT debugCreateInfo = VkDebugReportCallbackCreateInfoEXT.callocStack(stack)
-                                                                                                   .sType(VK_STRUCTURE_TYPE_DEBUG_REPORT_CALLBACK_CREATE_INFO_EXT)
-                                                                                                   .flags(VK_DEBUG_REPORT_ERROR_BIT_EXT | VK_DEBUG_REPORT_WARNING_BIT_EXT | VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT)
-                                                                                                   .pfnCallback(debugCallback);
             
-            LongBuffer handleContainer = stack.callocLong(1);
+            VkDebugReportCallbackCreateInfoEXT debugCreateInfo = VkDebugReportCallbackCreateInfoEXT.mallocStack(stack)
+                                                                                                   .sType(VK_STRUCTURE_TYPE_DEBUG_REPORT_CALLBACK_CREATE_INFO_EXT)
+                                                                                                   .pNext(VK_NULL_HANDLE)
+                                                                                                   .flags(debugFlags)
+                                                                                                   .pfnCallback(debugCallback)
+                                                                                                   .pUserData(VK_NULL_HANDLE);
+            
+            LongBuffer handleContainer = stack.mallocLong(1);
             EngineUtils.checkError(vkCreateDebugReportCallbackEXT(instance, debugCreateInfo, null, handleContainer));
             
-            debugCallbackHandle = handleContainer.get(0);
+            return handleContainer.get(0);
         }
     }
     
     
-    private void getDeviceQueueFamilyPropertyIndecies()
+    private VkPhysicalDevice createPhysicalDevice(VkInstance instance)
     {
         try (MemoryStack stack = MemoryStack.stackPush())
         {
-            IntBuffer queueFamilyProperties = stack.callocInt(1);
-            vkGetPhysicalDeviceQueueFamilyProperties(gpu, queueFamilyProperties, null);
-            int queueFamilies = queueFamilyProperties.get(0);
-            
-            if (queueFamilies > 0)
-            {
-                IntBuffer surfaceSupports = stack.callocInt(queueFamilies);
-                
-                VkQueueFamilyProperties.Buffer props = VkQueueFamilyProperties.callocStack(queueFamilies, stack);
-                vkGetPhysicalDeviceQueueFamilyProperties(gpu, queueFamilyProperties, props);
-                
-                for (int i = 0; i < queueFamilies; i++)
-                {
-                    surfaceSupports.position(i);
-                    EngineUtils.checkError(KHRSurface.vkGetPhysicalDeviceSurfaceSupportKHR(gpu, i, window.getSurfaceHandle(), surfaceSupports));
-                }
-                
-                for (int i = 0; i < queueFamilies; i++)
-                {
-                    boolean hasPresentQueue = surfaceSupports.get(i) == VK_TRUE;
-                    
-                    if ((props.get(i).queueFlags() & VK_QUEUE_GRAPHICS_BIT) == VK_QUEUE_GRAPHICS_BIT)
-                    {
-                        if (graphicsQueueIndex == -1)
-                        {
-                            graphicsQueueIndex = i;
-                        }
-                        
-                        if (hasPresentQueue)
-                        {
-                            graphicsQueueIndex = i;
-                            presentQueueIndex = i;
-                        }
-                    }
-                }
-                
-                if (presentQueueIndex == -1)
-                {
-                    for (int i = 0; i < queueFamilies; i++)
-                    {
-                        boolean hasPresentQueue = surfaceSupports.get(0) == VK_TRUE;
-                        if (hasPresentQueue)
-                        {
-                            presentQueueIndex = i;
-                        }
-                    }
-                }
-            }
-            
-            System.out.println("Graphics Queue Index: " + graphicsQueueIndex);
-            System.out.println("Present Queue Index: " + presentQueueIndex);
-            if (graphicsQueueIndex == -1 || presentQueueIndex == -1)
-            {
-                throw new RuntimeException("No Queue Supporting Graphics Or Presentation Found!");
-            }
-            
-            if (graphicsQueueIndex != presentQueueIndex)
-            {
-                throw new RuntimeException("Could not find a common graphics and a present queue");
-            }
-        }
-    }
-    
-    private void createPhysicalDevice()
-    {
-        try (MemoryStack stack = MemoryStack.stackPush())
-        {
-            IntBuffer deviceBuffer = stack.callocInt(1);
+            IntBuffer deviceBuffer = stack.mallocInt(1);
             vkEnumeratePhysicalDevices(instance, deviceBuffer, null);
             if (deviceBuffer.get(0) > 0)
             {
-                PointerBuffer gpuHandles = stack.callocPointer(deviceBuffer.get(0));
+                PointerBuffer gpuHandles = stack.mallocPointer(deviceBuffer.get(0));
                 vkEnumeratePhysicalDevices(instance, deviceBuffer, gpuHandles);
                 
+                
                 // Only use the first GPU
-                gpu = new VkPhysicalDevice(gpuHandles.get(0), instance);
-                vkGetPhysicalDeviceProperties(gpu, gpuProperties);
-                vkGetPhysicalDeviceFeatures(gpu, gpuFeatures);
-                vkGetPhysicalDeviceMemoryProperties(gpu, gpuMemory);
+                return new VkPhysicalDevice(gpuHandles.get(0), instance);
                 
-                
-                System.out.println("System Information:");
-                System.out.println("Device Type: " + EngineUtils.vkPhysicalDeviceToString(gpuProperties.deviceType()));
-                System.out.println("Vulkan API version: " + EngineUtils.vkVersionToString(gpuProperties.apiVersion()));
-                System.out.println("Driver version: " + EngineUtils.vkVersionToString(gpuProperties.driverVersion()));
-                System.out.println("Vendor ID: " + gpuProperties.vendorID());
-                System.out.println("Device ID: " + gpuProperties.deviceID());
-                System.out.println("Device Name: " + gpuProperties.deviceNameString());
-                System.out.println("Device Memory: " + gpuMemory.memoryHeaps(0).size() / 1_000_000_000f + "GB");
-                System.out.println("Host Memory: " + gpuMemory.memoryHeaps(1).size() / 1_000_000_000f + "GB");
-                System.out.println();
-                
-                
-                EngineUtils.checkError(vkEnumerateDeviceExtensionProperties(gpu, (CharSequence) null, deviceBuffer, null));
-                boolean hasSwapchain = false;
-                
-                System.out.println("Supported GPU Extensions:");
-                
-                if (deviceBuffer.get(0) > 0)
-                {
-                    VkExtensionProperties.Buffer extensions = VkExtensionProperties.callocStack(deviceBuffer.get(0), stack);
-                    EngineUtils.checkError(vkEnumerateDeviceExtensionProperties(gpu, (CharSequence) null, deviceBuffer, extensions));
-                    
-                    deviceExt = MemoryStack.stackMallocPointer(deviceBuffer.get(0));
-                    for (int i = 0; i < deviceBuffer.get(0); i++)
-                    {
-                        extensions.position(i);
-                        
-                        System.out.println(extensions.extensionNameString());
-                        deviceExt.put(memASCII(extensions.extensionNameString()));
-                        if (extensions.extensionNameString().equals(VK_KHR_SWAPCHAIN_EXTENSION_NAME))
-                        {
-                            hasSwapchain = true;
-                        }
-                    }
-                    deviceExt.flip();
-                }
-                System.out.println();
-                
-                if (!hasSwapchain)
-                {
-                    throw new RuntimeException("GPU does not support swapchains!");
-                }
-            } else
-            {
-                throw new RuntimeException("No physical device avaliable");
             }
-            
-            vkEnumerateInstanceLayerProperties(deviceBuffer, null);
-            VkLayerProperties.Buffer layerProperties = VkLayerProperties.callocStack(deviceBuffer.get(0), stack);
-            vkEnumerateInstanceLayerProperties(deviceBuffer, layerProperties);
-            
-            System.out.println("Instance Layers:");
-            for (int i = 0; i < layerProperties.capacity(); i++)
-            {
-                System.out.format("%-40s \t | \t %s%n", layerProperties.get(i).layerNameString(), layerProperties.get(i).descriptionString());
-            }
-            System.out.println();
-            
-            vkEnumerateDeviceLayerProperties(gpu, deviceBuffer, null);
-            layerProperties = VkLayerProperties.callocStack(deviceBuffer.get(0), stack);
-            vkEnumerateDeviceLayerProperties(gpu, deviceBuffer, layerProperties);
-            
-            System.out.println("Device Layers:");
-            for (int i = 0; i < layerProperties.capacity(); i++)
-            {
-                System.out.format("%-40s \t | \t %s%n", layerProperties.get(i).layerNameString(), layerProperties.get(i).descriptionString());
-            }
-            System.out.println();
+            throw new RuntimeException("No physical device avaliable");
         }
     }
     
-    private void createVkDevice()
-    {
-        try (MemoryStack stack = MemoryStack.stackPush())
-        {
-            VkDeviceQueueCreateInfo.Buffer queueCreateInfo = VkDeviceQueueCreateInfo.callocStack(1, stack)
-                                                                                    .sType(VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO)
-                                                                                    .queueFamilyIndex(graphicsQueueIndex)
-                                                                                    .pQueuePriorities(stack.floats(1));
-            
-            VkPhysicalDeviceFeatures features = VkPhysicalDeviceFeatures.callocStack(stack);
-            if (gpuFeatures.shaderClipDistance())
-            {
-                features.shaderClipDistance(true);
-            }
-            
-            VkDeviceCreateInfo deviceCreateInfo = VkDeviceCreateInfo.callocStack(stack)
-                                                                    .sType(VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO)
-                                                                    .pQueueCreateInfos(queueCreateInfo)
-                                                                    .ppEnabledExtensionNames(deviceExt)
-                                                                    .pEnabledFeatures(features);
-            
-            PointerBuffer deviceBuffer = stack.callocPointer(1);
-            
-            EngineUtils.checkError(vkCreateDevice(gpu, deviceCreateInfo, null, deviceBuffer));
-            device = new VkDevice(deviceBuffer.get(0), gpu, deviceCreateInfo);
-            
-            vkGetDeviceQueue(device, graphicsQueueIndex, 0, deviceBuffer);
-            queue = new VkQueue(deviceBuffer.get(0), device);
-        }
-    }
-    
-    private void createVkInstance()
+    private VkInstance createVkInstance(PointerBuffer instanceLayers, PointerBuffer instanceExt)
     {
         try (MemoryStack stack = MemoryStack.stackPush())
         {
             
-            VkApplicationInfo appInfo = VkApplicationInfo.callocStack(stack)
+            VkApplicationInfo appInfo = VkApplicationInfo.mallocStack(stack)
                                                          .sType(VK_STRUCTURE_TYPE_APPLICATION_INFO)
-                                                         .apiVersion(VK_API_VERSION)
-                                                         .applicationVersion(VK_APPLICATION_VERSION)
-                                                         .engineVersion(VK_APPLICATION_VERSION)
+                                                         .pNext(VK_NULL_HANDLE)
                                                          .pApplicationName(memASCII("Fix title on line 319"))
-                                                         .pEngineName(memASCII("No Engine"));
+                                                         .applicationVersion(VK_APPLICATION_VERSION)
+                                                         .pEngineName(memASCII("No Engine"))
+                                                         .engineVersion(VK_APPLICATION_VERSION)
+                                                         .apiVersion(VK_API_VERSION);
             
-            VkInstanceCreateInfo createInfo = VkInstanceCreateInfo.callocStack(stack)
+            VkInstanceCreateInfo createInfo = VkInstanceCreateInfo.mallocStack(stack)
                                                                   .sType(VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO)
+                                                                  .pNext(VK_NULL_HANDLE)
+                                                                  .flags(0)
                                                                   .pApplicationInfo(appInfo)
                                                                   .ppEnabledExtensionNames(instanceExt)
                                                                   .ppEnabledLayerNames(instanceLayers);
             
-            PointerBuffer instanceBuffer = stack.callocPointer(1);
+            PointerBuffer instanceBuffer = stack.mallocPointer(1);
             EngineUtils.checkError(vkCreateInstance(createInfo, null, instanceBuffer));
-            instance = new VkInstance(instanceBuffer.get(0), createInfo);
+            return new VkInstance(instanceBuffer.get(0), createInfo);
         }
+    }
+    
+    public Window createWindow(String title, int width, int height)
+    {
+        return new Window(title, width, height);
     }
     
     
