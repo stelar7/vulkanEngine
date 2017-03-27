@@ -37,16 +37,6 @@ public class Window
     private long fragmentShader;
     private long vertexShader;
     
-    private float     triangleSize = 1.6f;
-    private float[][] triangle     = new float[][]
-            {
-                    /*rb*/ new float[]{0.5f * triangleSize, (float) (Math.sqrt(3.0f) * 0.25f * triangleSize),   /*R*/1.0f, 0.0f, 0.0f},
-                    /* t*/ new float[]{0.0f, (float) (-Math.sqrt(3.0f) * 0.25f * triangleSize),                 /*G*/0.0f, 1.0f, 0.0f},
-                    /*lb*/ new float[]{-0.5f * triangleSize, (float) (Math.sqrt(3.0f) * 0.25f * triangleSize),  /*B*/0.0f, 0.0f, 1.0f}
-            };
-    
-    private Vertex vertices = new Vertex(triangle);
-    
     public long getWindowHandle()
     {
         return windowHandle;
@@ -87,7 +77,8 @@ public class Window
         surfaceCapabilities.free();
         windowSize.free();
         
-        vertices.destroy(device);
+        VertexSpecification.destroy();
+        
         destroyPipeline(device);
         destroyPipelineLayout(device);
         destroyShaders(device);
@@ -568,57 +559,6 @@ public class Window
         }
     }
     
-    public void prepareVertices(VkDevice device, VkPhysicalDeviceMemoryProperties memoryProperties)
-    {
-        
-        long[] size = new long[1];
-        vertices.setBuffer(createBuffer(device, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, vertices.getSizeInBytes()));
-        vertices.setMemory(createMemory(device, memoryProperties, vertices.getBuffer(), VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, size));
-        vertices.setData(device, size[0]);
-    }
-    
-    private long createMemory(VkDevice device, VkPhysicalDeviceMemoryProperties memory, long buffer, int requiredFlags, long[] allocated)
-    {
-        try (MemoryStack stack = MemoryStack.stackPush())
-        {
-            VkMemoryRequirements memoryRequirements = VkMemoryRequirements.mallocStack(stack);
-            vkGetBufferMemoryRequirements(device, buffer, memoryRequirements);
-            
-            int index = EngineUtils.findMemoryTypeIndex(memory, memoryRequirements, requiredFlags);
-            
-            VkMemoryAllocateInfo allocateInfo = VkMemoryAllocateInfo.mallocStack(stack)
-                                                                    .sType(VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO)
-                                                                    .pNext(VK_NULL_HANDLE)
-                                                                    .allocationSize(memoryRequirements.size())
-                                                                    .memoryTypeIndex(index);
-            
-            LongBuffer handleHolder = stack.mallocLong(1);
-            EngineUtils.checkError(vkAllocateMemory(device, allocateInfo, null, handleHolder));
-            
-            allocated[0] = allocateInfo.allocationSize();
-            return handleHolder.get(0);
-        }
-    }
-    
-    private long createBuffer(VkDevice device, int usage, long size)
-    {
-        try (MemoryStack stack = MemoryStack.stackPush())
-        {
-            VkBufferCreateInfo bufferCreateInfo = VkBufferCreateInfo.mallocStack(stack)
-                                                                    .sType(VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO)
-                                                                    .pNext(VK_NULL_HANDLE)
-                                                                    .flags(0)
-                                                                    .size(size)
-                                                                    .usage(usage)
-                                                                    .sharingMode(VK_SHARING_MODE_EXCLUSIVE)
-                                                                    .pQueueFamilyIndices(null);
-            
-            LongBuffer handleHolder = stack.callocLong(1);
-            EngineUtils.checkError(vkCreateBuffer(device, bufferCreateInfo, null, handleHolder));
-            return handleHolder.get(0);
-        }
-    }
-    
     public void createPipeline(VkDevice device, VkPhysicalDeviceLimits limits)
     {
         try (MemoryStack stack = MemoryStack.stackPush())
@@ -646,24 +586,24 @@ public class Window
             VkPipelineShaderStageCreateInfo.Buffer shaderStageCreateInfo = VkPipelineShaderStageCreateInfo.mallocStack(2, stack);
             shaderStageCreateInfo.put(0, vertexCreateInfo).put(1, fragmentCreateInfo);
             
-            if (Vertex.getVertexStride() >= limits.maxVertexInputBindingStride())
+            if (VertexSpecification.getVertexStride() >= limits.maxVertexInputBindingStride())
             {
-                throw new RuntimeException("GPU does not support a stride of " + Vertex.getVertexStride());
+                throw new RuntimeException("GPU does not support a stride of " + VertexSpecification.getVertexStride());
             }
             
-            if (Vertex.getVertexBinding() > limits.maxVertexInputBindings())
+            if (VertexSpecification.getVertexBinding() > limits.maxVertexInputBindings())
             {
-                throw new RuntimeException("GPU does not support binding " + Vertex.getVertexBinding() + " inputs");
+                throw new RuntimeException("GPU does not support binding " + VertexSpecification.getVertexBinding() + " inputs");
             }
             
-            if (Vertex.getLastAttribIndex() >= limits.maxVertexInputAttributes())
+            if (VertexSpecification.getLastAttribIndex() >= limits.maxVertexInputAttributes())
             {
-                throw new RuntimeException("GPU does not support " + (Vertex.getLastAttribIndex() + 1) + " shader \"in\"s'");
+                throw new RuntimeException("GPU does not support " + (VertexSpecification.getLastAttribIndex() + 1) + " shader \"in\"s'");
             }
             
-            if (Vertex.getLastAttribOffset() >= limits.maxVertexInputAttributeOffset())
+            if (VertexSpecification.getLastAttribOffset() >= limits.maxVertexInputAttributeOffset())
             {
-                throw new RuntimeException("GPU does not support " + Vertex.getLastAttribOffset() + " attribute offsets in shaders'");
+                throw new RuntimeException("GPU does not support " + VertexSpecification.getLastAttribOffset() + " attribute offsets in shaders'");
             }
             
             VkPipelineInputAssemblyStateCreateInfo inputAssemblyStateCreateInfo = VkPipelineInputAssemblyStateCreateInfo.mallocStack(stack)
@@ -740,7 +680,7 @@ public class Window
                                                                                                  .pNext(VK_NULL_HANDLE)
                                                                                                  .flags(0)
                                                                                                  .pStages(shaderStageCreateInfo)
-                                                                                                 .pVertexInputState(Vertex.getCreateInfo())
+                                                                                                 .pVertexInputState(VertexSpecification.getCreateInfo())
                                                                                                  .pInputAssemblyState(inputAssemblyStateCreateInfo)
                                                                                                  .pTessellationState(null)
                                                                                                  .pViewportState(viewportStateCreateInfo)

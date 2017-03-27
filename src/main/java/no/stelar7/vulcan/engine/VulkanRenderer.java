@@ -146,8 +146,6 @@ public class VulkanRenderer
             window.createShaders(device);
             window.createPipelineLayout(device);
             
-            window.prepareVertices(device, gpuMemory);
-            
             window.createPipeline(device, gpuProperties.limits());
             
         }
@@ -399,6 +397,47 @@ public class VulkanRenderer
         }
     }
     
+    public long createMemory(long buffer, int requiredFlags, long[] allocated)
+    {
+        try (MemoryStack stack = MemoryStack.stackPush())
+        {
+            VkMemoryRequirements memoryRequirements = VkMemoryRequirements.mallocStack(stack);
+            vkGetBufferMemoryRequirements(device, buffer, memoryRequirements);
+            
+            int index = EngineUtils.findMemoryTypeIndex(gpuMemory, memoryRequirements, requiredFlags);
+            
+            VkMemoryAllocateInfo allocateInfo = VkMemoryAllocateInfo.mallocStack(stack)
+                                                                    .sType(VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO)
+                                                                    .pNext(VK_NULL_HANDLE)
+                                                                    .allocationSize(memoryRequirements.size())
+                                                                    .memoryTypeIndex(index);
+            
+            LongBuffer handleHolder = stack.mallocLong(1);
+            EngineUtils.checkError(vkAllocateMemory(device, allocateInfo, null, handleHolder));
+            
+            allocated[0] = allocateInfo.allocationSize();
+            return handleHolder.get(0);
+        }
+    }
+    
+    public long createBuffer(int usage, long size)
+    {
+        try (MemoryStack stack = MemoryStack.stackPush())
+        {
+            VkBufferCreateInfo bufferCreateInfo = VkBufferCreateInfo.mallocStack(stack)
+                                                                    .sType(VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO)
+                                                                    .pNext(VK_NULL_HANDLE)
+                                                                    .flags(0)
+                                                                    .size(size)
+                                                                    .usage(usage)
+                                                                    .sharingMode(VK_SHARING_MODE_EXCLUSIVE)
+                                                                    .pQueueFamilyIndices(null);
+            
+            LongBuffer handleHolder = stack.callocLong(1);
+            EngineUtils.checkError(vkCreateBuffer(device, bufferCreateInfo, null, handleHolder));
+            return handleHolder.get(0);
+        }
+    }
     
     private long createVkDebug(int debugFlags)
     {

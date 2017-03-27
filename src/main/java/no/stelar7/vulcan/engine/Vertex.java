@@ -11,25 +11,20 @@ import static org.lwjgl.vulkan.VK10.*;
 public class Vertex
 {
     
-    private static int vertexBinding = 0;
-    
-    private static int positionCount = 3;
-    private static int colorCount    = 4;
-    
-    private static int positionLocation = 0;
-    private static int colorLocation    = 1;
-    private static int vertexStride     = positionCount + colorCount;
-    
     private float[][] vertices;
     
     private long buffer;
     private long memory;
     
-    private static VkPipelineVertexInputStateCreateInfo     createInfo          = VkPipelineVertexInputStateCreateInfo.malloc();
-    private static VkVertexInputBindingDescription.Buffer   vertexBindingBuffer = VkVertexInputBindingDescription.malloc(1);
-    private static VkVertexInputAttributeDescription.Buffer vertexAttribsBuffer = VkVertexInputAttributeDescription.malloc(2);
-    
-    public Vertex(final float[][] vertices)
+    /**
+     * Takes a float[][] in the format:
+     * [
+     * [XYZRGBA]
+     * [XYZRGBA]
+     * [XYZRGBA]
+     * ]
+     */
+    public Vertex(VulkanRenderer renderer, float[][] vertices)
     {
         this.vertices = new float[vertices.length][vertices[0].length];
         
@@ -38,105 +33,13 @@ public class Vertex
             System.arraycopy(this.vertices[i], 0, vertices[i], 0, vertices[0].length);
         }
         
-        getVertexBindingBuffer().binding(Vertex.getVertexBinding())
-                                .stride(Vertex.getVertexStride())
-                                .inputRate(VK_VERTEX_INPUT_RATE_VERTEX);
         
-        getVertexAttributeBuffer().get(0)
-                                  .location(Vertex.getPositionLocation())
-                                  .binding(Vertex.getVertexBinding())
-                                  .format(VK_FORMAT_R32G32B32_SFLOAT)
-                                  .offset(Vertex.getPositionOffset());
-        
-        getVertexAttributeBuffer().get(1)
-                                  .location(Vertex.getColorLocation())
-                                  .binding(Vertex.getVertexBinding())
-                                  .format(VK_FORMAT_R32G32B32A32_SFLOAT)
-                                  .offset(Vertex.getColorOffset());
-        
-        
-        getCreateInfo().sType(VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO)
-                       .pNext(VK_NULL_HANDLE)
-                       .flags(0)
-                       .pVertexBindingDescriptions(getVertexBindingBuffer())
-                       .pVertexAttributeDescriptions(getVertexAttributeBuffer());
-        
+        long[] size = new long[1];
+        buffer = renderer.createBuffer(VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, getSizeInBytes());
+        memory = renderer.createMemory(getBuffer(), VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, size);
+        setData(renderer.getDevice(), size[0]);
     }
     
-    public static int getPositionCount()
-    {
-        return positionCount;
-    }
-    
-    public static int getColorCount()
-    {
-        return colorCount;
-    }
-    
-    public static int getVertexStride()
-    {
-        return vertexStride;
-    }
-    
-    public static int getVertexBinding()
-    {
-        return vertexBinding;
-    }
-    
-    public static int getPositionLocation()
-    {
-        return positionLocation;
-    }
-    
-    public static int getColorLocation()
-    {
-        return colorLocation;
-    }
-    
-    public static VkPipelineVertexInputStateCreateInfo getCreateInfo()
-    {
-        return createInfo;
-    }
-    
-    public static VkVertexInputBindingDescription.Buffer getVertexBindingBuffer()
-    {
-        return vertexBindingBuffer;
-    }
-    
-    public static VkVertexInputAttributeDescription.Buffer getVertexAttributeBuffer()
-    {
-        return vertexAttribsBuffer;
-    }
-    
-    public void destroy(VkDevice device)
-    {
-        vkDestroyBuffer(device, buffer, null);
-        vkFreeMemory(device, memory, null);
-        
-        vertexBindingBuffer.free();
-        vertexAttribsBuffer.free();
-        createInfo.free();
-    }
-    
-    public static int getColorOffset()
-    {
-        return ((positionLocation) + 1) * Float.BYTES;
-    }
-    
-    public static int getPositionOffset()
-    {
-        return 0;
-    }
-    
-    public static int getLastAttribIndex()
-    {
-        return colorLocation;
-    }
-    
-    public static int getLastAttribOffset()
-    {
-        return getColorOffset();
-    }
     
     public int getVertexCount()
     {
@@ -179,5 +82,11 @@ public class Vertex
     public long getSizeInBytes()
     {
         return vertices.length * vertices[0].length * (long) Float.BYTES;
+    }
+    
+    public void destroy(VkDevice device)
+    {
+        vkDestroyBuffer(device, buffer, null);
+        vkFreeMemory(device, memory, null);
     }
 }
