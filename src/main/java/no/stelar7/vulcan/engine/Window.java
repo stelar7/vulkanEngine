@@ -155,9 +155,10 @@ public class Window
             IntBuffer widthBuffer  = stack.mallocInt(1);
             IntBuffer heightBuffer = stack.mallocInt(1);
             windowHandle = glfwCreateWindow(windowSize.width(), windowSize.height(), windowName, MemoryUtil.NULL, MemoryUtil.NULL);
-            glfwGetFramebufferSize(windowHandle, widthBuffer, heightBuffer);
             
+            glfwGetFramebufferSize(windowHandle, widthBuffer, heightBuffer);
             windowSize.width(widthBuffer.get(0)).height(heightBuffer.get(0));
+    
             glfwShowWindow(windowHandle);
         }
     }
@@ -700,6 +701,11 @@ public class Window
             
             pipelineHandle = handleHolder.get(0);
         }
+    }
+    
+    public VkExtent2D getWindowSize()
+    {
+        return windowSize;
     }
     
 /*    private int index = 0;

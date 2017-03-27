@@ -44,6 +44,7 @@ public class VulkanRenderer
     private VkPhysicalDeviceFeatures         gpuFeatures   = VkPhysicalDeviceFeatures.malloc();
     private VkPhysicalDeviceMemoryProperties gpuMemory     = VkPhysicalDeviceMemoryProperties.malloc();
     
+    
     public VkPhysicalDeviceProperties getGpuProperties()
     {
         return gpuProperties;
@@ -129,6 +130,16 @@ public class VulkanRenderer
             
             window = createWindow(title, width, height);
             window.createSurface(instance);
+            
+            glfwSetWindowRefreshCallback(window.getWindowHandle(), (wHandle) -> render());
+            glfwSetFramebufferSizeCallback(window.getWindowHandle(), (wHandle, w, h) ->
+            {
+                window.getWindowSize().width(w).height(h);
+                if (w != 0 && h != 0)
+                {
+                    //TODO: window.recreateSwapchain(physicalDevice, device);
+                }
+            });
             
             graphicsQueueIndex = getQueueFamily(physicalDevice);
             presentQueueIndex = getQueueFamily(physicalDevice);
@@ -373,6 +384,7 @@ public class VulkanRenderer
                 
                 vkDestroyDebugReportCallbackEXT(instance, debugCallbackHandle, null);
                 vkDestroyInstance(instance, null);
+                
             }
         } finally
         {
@@ -395,6 +407,7 @@ public class VulkanRenderer
         {
             throw new RuntimeException("Vulkan not supported! (Make sure you are using a GTX600/Radeon HD77xx or newer, and have up-to-date drivers)");
         }
+        
     }
     
     public long createMemory(long buffer, int requiredFlags, long[] allocated)
