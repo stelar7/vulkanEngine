@@ -177,25 +177,21 @@ public final class EngineUtils
     
     public static String vkFormatToString(int format)
     {
-        switch (format)
+        if (format == 44)
         {
-            case 44:
-                return "VK_FORMAT_B8G8R8A8_UNORM";
-            default:
-                return "UNKNOWN " + format;
+            return "VK_FORMAT_B8G8R8A8_UNORM";
         }
+        return "UNKNOWN " + format;
         
     }
     
     public static String vkColorSpaceToString(int colorspace)
     {
-        switch (colorspace)
+        if (colorspace == 0)
         {
-            case 0:
-                return "VK_COLOR_SPACE_SRGB_NONLINEAR_KHR";
-            default:
-                return "UNKNOWN " + colorspace;
+            return "VK_COLOR_SPACE_SRGB_NONLINEAR_KHR";
         }
+        return "UNKNOWN " + colorspace;
     }
     
     public static byte[] readFileToArray(String filename)

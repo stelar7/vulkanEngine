@@ -395,7 +395,7 @@ public class VulkanRenderer
         
         if (!glfwVulkanSupported())
         {
-            throw new RuntimeException("Vulkan not supported");
+            throw new RuntimeException("Vulkan not supported! (Make sure you are using a GTX600/Radeon HD77xx or newer, and have up-to-date drivers)");
         }
     }
     
