@@ -25,9 +25,9 @@ public class Vertex
     private long buffer;
     private long memory;
     
-    private VkPipelineVertexInputStateCreateInfo     createInfo          = VkPipelineVertexInputStateCreateInfo.malloc();
-    private VkVertexInputBindingDescription.Buffer   vertexBindingBuffer = VkVertexInputBindingDescription.calloc(1);
-    private VkVertexInputAttributeDescription.Buffer vertexAttribsBuffer = VkVertexInputAttributeDescription.calloc(2);
+    private static VkPipelineVertexInputStateCreateInfo     createInfo          = VkPipelineVertexInputStateCreateInfo.malloc();
+    private static VkVertexInputBindingDescription.Buffer   vertexBindingBuffer = VkVertexInputBindingDescription.malloc(1);
+    private static VkVertexInputAttributeDescription.Buffer vertexAttribsBuffer = VkVertexInputAttributeDescription.malloc(2);
     
     public Vertex(final float[][] vertices)
     {
@@ -37,6 +37,30 @@ public class Vertex
         {
             System.arraycopy(this.vertices[i], 0, vertices[i], 0, vertices[0].length);
         }
+        
+        getVertexBindingBuffer().binding(Vertex.getVertexBinding())
+                                .stride(Vertex.getVertexStride())
+                                .inputRate(VK_VERTEX_INPUT_RATE_VERTEX);
+        
+        getVertexAttributeBuffer().get(0)
+                                  .location(Vertex.getPositionLocation())
+                                  .binding(Vertex.getVertexBinding())
+                                  .format(VK_FORMAT_R32G32B32_SFLOAT)
+                                  .offset(Vertex.getPositionOffset());
+        
+        getVertexAttributeBuffer().get(1)
+                                  .location(Vertex.getColorLocation())
+                                  .binding(Vertex.getVertexBinding())
+                                  .format(VK_FORMAT_R32G32B32A32_SFLOAT)
+                                  .offset(Vertex.getColorOffset());
+        
+        
+        getCreateInfo().sType(VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO)
+                       .pNext(VK_NULL_HANDLE)
+                       .flags(0)
+                       .pVertexBindingDescriptions(getVertexBindingBuffer())
+                       .pVertexAttributeDescriptions(getVertexAttributeBuffer());
+        
     }
     
     public static int getPositionCount()
@@ -69,17 +93,17 @@ public class Vertex
         return colorLocation;
     }
     
-    public VkPipelineVertexInputStateCreateInfo getCreateInfo()
+    public static VkPipelineVertexInputStateCreateInfo getCreateInfo()
     {
         return createInfo;
     }
     
-    public VkVertexInputBindingDescription.Buffer getVertexBindingBuffer()
+    public static VkVertexInputBindingDescription.Buffer getVertexBindingBuffer()
     {
         return vertexBindingBuffer;
     }
     
-    public VkVertexInputAttributeDescription.Buffer getVertexAttributeBuffer()
+    public static VkVertexInputAttributeDescription.Buffer getVertexAttributeBuffer()
     {
         return vertexAttribsBuffer;
     }
@@ -91,6 +115,7 @@ public class Vertex
         
         vertexBindingBuffer.free();
         vertexAttribsBuffer.free();
+        createInfo.free();
     }
     
     public static int getColorOffset()
@@ -149,5 +174,10 @@ public class Vertex
             
             vkUnmapMemory(device, memory);
         }
+    }
+    
+    public long getSizeInBytes()
+    {
+        return vertices.length * vertices[0].length * (long) Float.BYTES;
     }
 }

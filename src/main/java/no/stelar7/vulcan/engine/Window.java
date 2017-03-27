@@ -571,34 +571,8 @@ public class Window
     public void prepareVertices(VkDevice device, VkPhysicalDeviceMemoryProperties memoryProperties)
     {
         
-        vertices.getVertexBindingBuffer()
-                .binding(Vertex.getVertexBinding())
-                .stride(Vertex.getVertexStride())
-                .inputRate(VK_VERTEX_INPUT_RATE_VERTEX);
-        
-        vertices.getVertexAttributeBuffer()
-                .location(Vertex.getPositionLocation())
-                .binding(Vertex.getVertexBinding())
-                .format(VK_FORMAT_R32G32B32_SFLOAT)
-                .offset(Vertex.getPositionOffset());
-        
-        vertices.getVertexAttributeBuffer()
-                .get(1)
-                .location(Vertex.getColorLocation())
-                .binding(Vertex.getVertexBinding())
-                .format(VK_FORMAT_R32G32B32A32_SFLOAT)
-                .offset(Vertex.getColorOffset());
-        
-        
-        vertices.getCreateInfo()
-                .sType(VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO)
-                .pNext(VK_NULL_HANDLE)
-                .flags(0)
-                .pVertexBindingDescriptions(vertices.getVertexBindingBuffer())
-                .pVertexAttributeDescriptions(vertices.getVertexAttributeBuffer());
-        
         long[] size = new long[1];
-        vertices.setBuffer(createBuffer(device, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, vertices.getVertexCount() * Vertex.getVertexStride() * Float.BYTES));
+        vertices.setBuffer(createBuffer(device, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, vertices.getSizeInBytes()));
         vertices.setMemory(createMemory(device, memoryProperties, vertices.getBuffer(), VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, size));
         vertices.setData(device, size[0]);
     }
@@ -766,7 +740,7 @@ public class Window
                                                                                                  .pNext(VK_NULL_HANDLE)
                                                                                                  .flags(0)
                                                                                                  .pStages(shaderStageCreateInfo)
-                                                                                                 .pVertexInputState(vertices.getCreateInfo())
+                                                                                                 .pVertexInputState(Vertex.getCreateInfo())
                                                                                                  .pInputAssemblyState(inputAssemblyStateCreateInfo)
                                                                                                  .pTessellationState(null)
                                                                                                  .pViewportState(viewportStateCreateInfo)
