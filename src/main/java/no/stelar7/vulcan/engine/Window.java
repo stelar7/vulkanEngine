@@ -18,10 +18,12 @@ public class Window
     private String               windowName;
     private ColorFormatContainer surfaceFormat;
     
-    private long windowHandle     = VK_NULL_HANDLE;
-    private long surfaceHandle    = VK_NULL_HANDLE;
-    private long swapchainHandle  = VK_NULL_HANDLE;
-    private long renderPassHandle = VK_NULL_HANDLE;
+    private long windowHandle         = VK_NULL_HANDLE;
+    private long surfaceHandle        = VK_NULL_HANDLE;
+    private long swapchainHandle      = VK_NULL_HANDLE;
+    private long renderPassHandle     = VK_NULL_HANDLE;
+    private long pipelineLayoutHandle = VK_NULL_HANDLE;
+    private long pipelineHandle       = VK_NULL_HANDLE;
     
     private static final int IDEAL_PRESENT_MODE = VK_PRESENT_MODE_MAILBOX_KHR;
     
@@ -32,6 +34,18 @@ public class Window
     private List<Long> swapchainImageViews;
     private List<Long> framebuffers;
     
+    private long fragmentShader;
+    private long vertexShader;
+    
+    private float     triangleSize = 1.6f;
+    private float[][] triangle     = new float[][]
+            {
+                    /*rb*/ new float[]{0.5f * triangleSize, (float) (Math.sqrt(3.0f) * 0.25f * triangleSize),   /*R*/1.0f, 0.0f, 0.0f},
+                    /* t*/ new float[]{0.0f, (float) (-Math.sqrt(3.0f) * 0.25f * triangleSize),                 /*G*/0.0f, 1.0f, 0.0f},
+                    /*lb*/ new float[]{-0.5f * triangleSize, (float) (Math.sqrt(3.0f) * 0.25f * triangleSize),  /*B*/0.0f, 0.0f, 1.0f}
+            };
+    
+    private Vertex vertices = new Vertex(triangle);
     
     public long getWindowHandle()
     {
@@ -73,12 +87,32 @@ public class Window
         surfaceCapabilities.free();
         windowSize.free();
         
+        vertices.destroy(device);
+        destroyPipeline(device);
+        destroyPipelineLayout(device);
+        destroyShaders(device);
         destroySwapchainImageViews(device);
         destroyFramebuffers(device);
         destroyRenderPass(device);
         destroySwapchain(device);
         destroySurface(instance);
         destroyWindow();
+    }
+    
+    private void destroyPipeline(VkDevice device)
+    {
+        vkDestroyPipeline(device, pipelineHandle, null);
+    }
+    
+    private void destroyPipelineLayout(VkDevice device)
+    {
+        vkDestroyPipelineLayout(device, pipelineLayoutHandle, null);
+    }
+    
+    private void destroyShaders(VkDevice device)
+    {
+        vkDestroyShaderModule(device, fragmentShader, null);
+        vkDestroyShaderModule(device, vertexShader, null);
     }
     
     private void destroySwapchainImageViews(VkDevice device)
@@ -485,6 +519,272 @@ public class Window
             }
             
             framebuffers = createdFramebuffers;
+        }
+    }
+    
+    public void createShaders(VkDevice device)
+    {
+        fragmentShader = createShader(device, "/shaders/compiled/basic.frag.spv");
+        vertexShader = createShader(device, "/shaders/compiled/basic.vert.spv");
+    }
+    
+    
+    private long createShader(VkDevice device, String filename)
+    {
+        try (MemoryStack stack = MemoryStack.stackPush())
+        {
+            byte[]     data = EngineUtils.readFileToArray(filename);
+            ByteBuffer code = stack.malloc(data.length).put(data);
+            code.flip();
+            
+            VkShaderModuleCreateInfo createInfo = VkShaderModuleCreateInfo.mallocStack(stack)
+                                                                          .sType(VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO)
+                                                                          .pNext(VK_NULL_HANDLE)
+                                                                          .flags(0)
+                                                                          .pCode(code);
+            
+            LongBuffer handleBuffer = stack.callocLong(1);
+            EngineUtils.checkError(vkCreateShaderModule(device, createInfo, null, handleBuffer));
+            return handleBuffer.get(0);
+        }
+    }
+    
+    public void createPipelineLayout(VkDevice device)
+    {
+        try (MemoryStack stack = MemoryStack.stackPush())
+        {
+            
+            VkPipelineLayoutCreateInfo createInfo = VkPipelineLayoutCreateInfo.mallocStack(stack)
+                                                                              .sType(VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO)
+                                                                              .pNext(VK_NULL_HANDLE)
+                                                                              .flags(0)
+                                                                              .pSetLayouts(null)
+                                                                              .pPushConstantRanges(null);
+            
+            LongBuffer handleBuffer = stack.callocLong(1);
+            EngineUtils.checkError(vkCreatePipelineLayout(device, createInfo, null, handleBuffer));
+            
+            pipelineLayoutHandle = handleBuffer.get(0);
+        }
+    }
+    
+    public void prepareVertices(VkDevice device, VkPhysicalDeviceMemoryProperties memoryProperties)
+    {
+        
+        vertices.getVertexBindingBuffer()
+                .binding(Vertex.getVertexBinding())
+                .stride(Vertex.getVertexStride())
+                .inputRate(VK_VERTEX_INPUT_RATE_VERTEX);
+        
+        vertices.getVertexAttributeBuffer()
+                .location(Vertex.getPositionLocation())
+                .binding(Vertex.getVertexBinding())
+                .format(VK_FORMAT_R32G32B32_SFLOAT)
+                .offset(Vertex.getPositionOffset());
+        
+        vertices.getVertexAttributeBuffer()
+                .get(1)
+                .location(Vertex.getColorLocation())
+                .binding(Vertex.getVertexBinding())
+                .format(VK_FORMAT_R32G32B32A32_SFLOAT)
+                .offset(Vertex.getColorOffset());
+        
+        
+        vertices.getCreateInfo()
+                .sType(VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO)
+                .pNext(VK_NULL_HANDLE)
+                .flags(0)
+                .pVertexBindingDescriptions(vertices.getVertexBindingBuffer())
+                .pVertexAttributeDescriptions(vertices.getVertexAttributeBuffer());
+        
+        long[] size = new long[1];
+        vertices.setBuffer(createBuffer(device, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, vertices.getVertexCount() * Vertex.getVertexStride() * Float.BYTES));
+        vertices.setMemory(createMemory(device, memoryProperties, vertices.getBuffer(), VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, size));
+        vertices.setData(device, size[0]);
+    }
+    
+    private long createMemory(VkDevice device, VkPhysicalDeviceMemoryProperties memory, long buffer, int requiredFlags, long[] allocated)
+    {
+        try (MemoryStack stack = MemoryStack.stackPush())
+        {
+            VkMemoryRequirements memoryRequirements = VkMemoryRequirements.mallocStack(stack);
+            vkGetBufferMemoryRequirements(device, buffer, memoryRequirements);
+            
+            int index = EngineUtils.findMemoryTypeIndex(memory, memoryRequirements, requiredFlags);
+            
+            VkMemoryAllocateInfo allocateInfo = VkMemoryAllocateInfo.mallocStack(stack)
+                                                                    .sType(VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO)
+                                                                    .pNext(VK_NULL_HANDLE)
+                                                                    .allocationSize(memoryRequirements.size())
+                                                                    .memoryTypeIndex(index);
+            
+            LongBuffer handleHolder = stack.mallocLong(1);
+            EngineUtils.checkError(vkAllocateMemory(device, allocateInfo, null, handleHolder));
+            
+            allocated[0] = allocateInfo.allocationSize();
+            return handleHolder.get(0);
+        }
+    }
+    
+    private long createBuffer(VkDevice device, int usage, long size)
+    {
+        try (MemoryStack stack = MemoryStack.stackPush())
+        {
+            VkBufferCreateInfo bufferCreateInfo = VkBufferCreateInfo.mallocStack(stack)
+                                                                    .sType(VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO)
+                                                                    .pNext(VK_NULL_HANDLE)
+                                                                    .flags(0)
+                                                                    .size(size)
+                                                                    .usage(usage)
+                                                                    .sharingMode(VK_SHARING_MODE_EXCLUSIVE)
+                                                                    .pQueueFamilyIndices(null);
+            
+            LongBuffer handleHolder = stack.callocLong(1);
+            EngineUtils.checkError(vkCreateBuffer(device, bufferCreateInfo, null, handleHolder));
+            return handleHolder.get(0);
+        }
+    }
+    
+    public void createPipeline(VkDevice device, VkPhysicalDeviceLimits limits)
+    {
+        try (MemoryStack stack = MemoryStack.stackPush())
+        {
+            
+            VkPipelineShaderStageCreateInfo vertexCreateInfo = VkPipelineShaderStageCreateInfo.mallocStack(stack)
+                                                                                              .sType(VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO)
+                                                                                              .pNext(VK_NULL_HANDLE)
+                                                                                              .flags(0)
+                                                                                              .stage(VK_SHADER_STAGE_VERTEX_BIT)
+                                                                                              .module(vertexShader)
+                                                                                              .pName(MemoryUtil.memASCII("main"))
+                                                                                              .pSpecializationInfo(null);
+            
+            VkPipelineShaderStageCreateInfo fragmentCreateInfo = VkPipelineShaderStageCreateInfo.mallocStack(stack)
+                                                                                                .sType(VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO)
+                                                                                                .pNext(VK_NULL_HANDLE)
+                                                                                                .flags(0)
+                                                                                                .stage(VK_SHADER_STAGE_FRAGMENT_BIT)
+                                                                                                .module(fragmentShader)
+                                                                                                .pName(MemoryUtil.memASCII("main"))
+                                                                                                .pSpecializationInfo(null);
+            
+            
+            VkPipelineShaderStageCreateInfo.Buffer shaderStageCreateInfo = VkPipelineShaderStageCreateInfo.mallocStack(2, stack);
+            shaderStageCreateInfo.put(0, vertexCreateInfo).put(1, fragmentCreateInfo);
+            
+            if (Vertex.getVertexStride() >= limits.maxVertexInputBindingStride())
+            {
+                throw new RuntimeException("GPU does not support a stride of " + Vertex.getVertexStride());
+            }
+            
+            if (Vertex.getVertexBinding() > limits.maxVertexInputBindings())
+            {
+                throw new RuntimeException("GPU does not support binding " + Vertex.getVertexBinding() + " inputs");
+            }
+            
+            if (Vertex.getLastAttribIndex() >= limits.maxVertexInputAttributes())
+            {
+                throw new RuntimeException("GPU does not support " + (Vertex.getLastAttribIndex() + 1) + " shader \"in\"s'");
+            }
+            
+            if (Vertex.getLastAttribOffset() >= limits.maxVertexInputAttributeOffset())
+            {
+                throw new RuntimeException("GPU does not support " + Vertex.getLastAttribOffset() + " attribute offsets in shaders'");
+            }
+            
+            VkPipelineInputAssemblyStateCreateInfo inputAssemblyStateCreateInfo = VkPipelineInputAssemblyStateCreateInfo.mallocStack(stack)
+                                                                                                                        .sType(VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO)
+                                                                                                                        .pNext(VK_NULL_HANDLE)
+                                                                                                                        .flags(0)
+                                                                                                                        .topology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST)
+                                                                                                                        .primitiveRestartEnable(false);
+            
+            VkPipelineViewportStateCreateInfo viewportStateCreateInfo = VkPipelineViewportStateCreateInfo.mallocStack(stack)
+                                                                                                         .sType(VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO)
+                                                                                                         .pNext(VK_NULL_HANDLE).flags(0)
+                                                                                                         .viewportCount(1)
+                                                                                                         .pViewports(null)
+                                                                                                         .scissorCount(1)
+                                                                                                         .pScissors(null);
+            
+            VkPipelineRasterizationStateCreateInfo rasterizationStateCreateInfo = VkPipelineRasterizationStateCreateInfo.mallocStack(stack)
+                                                                                                                        .sType(VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO)
+                                                                                                                        .pNext(VK_NULL_HANDLE)
+                                                                                                                        .flags(0)
+                                                                                                                        .depthClampEnable(false)
+                                                                                                                        .rasterizerDiscardEnable(false)
+                                                                                                                        .polygonMode(VK_POLYGON_MODE_FILL)
+                                                                                                                        .cullMode(VK_CULL_MODE_BACK_BIT)
+                                                                                                                        .frontFace(VK_FRONT_FACE_COUNTER_CLOCKWISE)
+                                                                                                                        .depthBiasEnable(false)
+                                                                                                                        .depthBiasConstantFactor(0)
+                                                                                                                        .depthBiasClamp(0)
+                                                                                                                        .depthBiasSlopeFactor(0)
+                                                                                                                        .lineWidth(1);
+            
+            VkPipelineMultisampleStateCreateInfo multisampleStateCreateInfo = VkPipelineMultisampleStateCreateInfo.mallocStack(stack)
+                                                                                                                  .sType(VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO)
+                                                                                                                  .pNext(VK_NULL_HANDLE)
+                                                                                                                  .flags(0)
+                                                                                                                  .rasterizationSamples(VK_SAMPLE_COUNT_1_BIT)
+                                                                                                                  .sampleShadingEnable(false)
+                                                                                                                  .minSampleShading(0)
+                                                                                                                  .pSampleMask(null)
+                                                                                                                  .alphaToCoverageEnable(false)
+                                                                                                                  .alphaToOneEnable(false);
+            
+            VkPipelineColorBlendAttachmentState.Buffer colorBlendAttachment = VkPipelineColorBlendAttachmentState.mallocStack(1, stack)
+                                                                                                                 .blendEnable(false)
+                                                                                                                 .srcColorBlendFactor(VK_BLEND_FACTOR_ZERO)
+                                                                                                                 .dstColorBlendFactor(VK_BLEND_FACTOR_ZERO)
+                                                                                                                 .colorBlendOp(VK_BLEND_OP_ADD)
+                                                                                                                 .srcAlphaBlendFactor(VK_BLEND_FACTOR_ZERO)
+                                                                                                                 .dstColorBlendFactor(VK_BLEND_FACTOR_ZERO)
+                                                                                                                 .alphaBlendOp(VK_BLEND_OP_ADD)
+                                                                                                                 .colorWriteMask(VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT);
+            
+            VkPipelineColorBlendStateCreateInfo colorBlendStateCreateInfo = VkPipelineColorBlendStateCreateInfo.mallocStack(stack)
+                                                                                                               .sType(VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO)
+                                                                                                               .pNext(VK_NULL_HANDLE)
+                                                                                                               .flags(0)
+                                                                                                               .logicOpEnable(false)
+                                                                                                               .logicOp(VK_LOGIC_OP_COPY)
+                                                                                                               .pAttachments(colorBlendAttachment)
+                                                                                                               .blendConstants(0, 0)
+                                                                                                               .blendConstants(1, 0)
+                                                                                                               .blendConstants(2, 0)
+                                                                                                               .blendConstants(3, 0);
+            
+            VkPipelineDynamicStateCreateInfo dynamicStateCreateInfo = VkPipelineDynamicStateCreateInfo.mallocStack(stack)
+                                                                                                      .sType(VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO)
+                                                                                                      .pNext(VK_NULL_HANDLE)
+                                                                                                      .flags(0)
+                                                                                                      .pDynamicStates(stack.ints(VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR));
+            
+            VkGraphicsPipelineCreateInfo.Buffer pipelineCreateInfo = VkGraphicsPipelineCreateInfo.mallocStack(1, stack)
+                                                                                                 .sType(VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO)
+                                                                                                 .pNext(VK_NULL_HANDLE)
+                                                                                                 .flags(0)
+                                                                                                 .pStages(shaderStageCreateInfo)
+                                                                                                 .pVertexInputState(vertices.getCreateInfo())
+                                                                                                 .pInputAssemblyState(inputAssemblyStateCreateInfo)
+                                                                                                 .pTessellationState(null)
+                                                                                                 .pViewportState(viewportStateCreateInfo)
+                                                                                                 .pRasterizationState(rasterizationStateCreateInfo)
+                                                                                                 .pMultisampleState(multisampleStateCreateInfo)
+                                                                                                 .pDepthStencilState(null)
+                                                                                                 .pColorBlendState(colorBlendStateCreateInfo)
+                                                                                                 .pDynamicState(dynamicStateCreateInfo)
+                                                                                                 .layout(pipelineLayoutHandle)
+                                                                                                 .renderPass(renderPassHandle)
+                                                                                                 .subpass(0)
+                                                                                                 .basePipelineHandle(VK_NULL_HANDLE)
+                                                                                                 .basePipelineIndex(-1);
+            
+            LongBuffer handleHolder = stack.mallocLong(1);
+            EngineUtils.checkError(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, pipelineCreateInfo, null, handleHolder));
+            
+            pipelineHandle = handleHolder.get(0);
         }
     }
     

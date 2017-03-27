@@ -2,6 +2,8 @@ package no.stelar7.vulcan.engine;
 
 import org.lwjgl.vulkan.*;
 
+import java.io.*;
+
 import static org.lwjgl.vulkan.EXTDebugReport.*;
 import static org.lwjgl.vulkan.KHRDisplaySwapchain.*;
 import static org.lwjgl.vulkan.KHRSurface.*;
@@ -193,6 +195,25 @@ public final class EngineUtils
                 return "VK_COLOR_SPACE_SRGB_NONLINEAR_KHR";
             default:
                 return "UNKNOWN " + colorspace;
+        }
+    }
+    
+    public static byte[] readFileToArray(String filename)
+    {
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        try (InputStream is = EngineUtils.class.getResourceAsStream(filename))
+        {
+            int    n;
+            byte[] b = new byte[4096];
+            while ((n = is.read(b)) != -1)
+            {
+                output.write(b, 0, n);
+            }
+            return output.toByteArray();
+        } catch (IOException e)
+        {
+            e.printStackTrace();
+            return null;
         }
     }
 }

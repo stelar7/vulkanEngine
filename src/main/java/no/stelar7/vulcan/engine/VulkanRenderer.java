@@ -143,9 +143,16 @@ public class VulkanRenderer
             window.createRenderPass(device);
             window.createFramebuffers(device);
             
-            // initShaderModule
+            window.createShaders(device);
+            window.createPipelineLayout(device);
+            
+            window.prepareVertices(device, gpuMemory);
+            
+            window.createPipeline(device, gpuProperties.limits());
+            
         }
     }
+    
     
     private VkQueue getQueue(VkDevice device, int queueFamilyIndex, int index)
     {
