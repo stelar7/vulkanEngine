@@ -1,8 +1,12 @@
-package no.stelar7.vulcan.engine;
+package no.stelar7.vulcan.engine.game;
+
+import no.stelar7.vulcan.engine.render.VulkanRenderer;
 
 public abstract class Game
 {
     protected VulkanRenderer renderer;
+    
+    private boolean initOk;
     
     public Game(VulkanRenderer renderer)
     {
@@ -18,5 +22,13 @@ public abstract class Game
     /**
      * I'm not sure if how im gonna do this yet, so stick to creating stuff in the init method for now...
      */
-    public abstract void init();
+    public void init()
+    {
+        initOk = true;
+    }
+    
+    public boolean isInit()
+    {
+        return initOk;
+    }
 }

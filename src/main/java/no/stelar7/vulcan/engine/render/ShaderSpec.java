@@ -1,20 +1,22 @@
-package no.stelar7.vulcan.engine;
+package no.stelar7.vulcan.engine.render;
 
 import org.lwjgl.vulkan.*;
 
 import static org.lwjgl.vulkan.VK10.*;
 
-public class VertexSpecification
+public final class ShaderSpec
 {
+    private ShaderSpec()
+    {
+        // Hide public constructor
+    }
     
-    private static int vertexBinding = 0;
+    private static final int POSITION_COMPONENT_COUNT = 3;
+    private static final int COLOR_COMPONENT_COUNT    = 4;
     
-    private static int positionCount = 3;
-    private static int colorCount    = 4;
-    
-    private static int positionLocation = 0;
-    private static int colorLocation    = 1;
-    private static int vertexStride     = positionCount + colorCount;
+    private static final int POSITION_LOCATION = 0;
+    private static final int COLOR_LOCATION    = 1;
+    private static final int VERTEX_STRIDE     = POSITION_COMPONENT_COUNT + COLOR_COMPONENT_COUNT;
     
     private static VkPipelineVertexInputStateCreateInfo     createInfo          = VkPipelineVertexInputStateCreateInfo.malloc();
     private static VkVertexInputBindingDescription.Buffer   vertexBindingBuffer = VkVertexInputBindingDescription.malloc(1);
@@ -22,21 +24,21 @@ public class VertexSpecification
     
     static
     {
-        getVertexBindingBuffer().binding(VertexSpecification.getVertexBinding())
-                                .stride(VertexSpecification.getVertexStride())
+        getVertexBindingBuffer().binding(ShaderSpec.getVertexBindingIndex())
+                                .stride(ShaderSpec.getVertexStrideInBytes())
                                 .inputRate(VK_VERTEX_INPUT_RATE_VERTEX);
         
         getVertexAttributeBuffer().get(0)
-                                  .location(VertexSpecification.getPositionLocation())
-                                  .binding(VertexSpecification.getVertexBinding())
+                                  .location(ShaderSpec.getPositionLocation())
+                                  .binding(ShaderSpec.getVertexBindingIndex())
                                   .format(VK_FORMAT_R32G32B32_SFLOAT)
-                                  .offset(VertexSpecification.getPositionOffset());
+                                  .offset(ShaderSpec.getPositionOffsetInBytes());
         
         getVertexAttributeBuffer().get(1)
-                                  .location(VertexSpecification.getColorLocation())
-                                  .binding(VertexSpecification.getVertexBinding())
+                                  .location(ShaderSpec.getColorLocation())
+                                  .binding(ShaderSpec.getVertexBindingIndex())
                                   .format(VK_FORMAT_R32G32B32A32_SFLOAT)
-                                  .offset(VertexSpecification.getColorOffset());
+                                  .offset(ShaderSpec.getColorOffsetInBytes());
         
         
         getCreateInfo().sType(VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO)
@@ -46,34 +48,39 @@ public class VertexSpecification
                        .pVertexAttributeDescriptions(getVertexAttributeBuffer());
     }
     
-    public static int getPositionCount()
+    public static int getPositionComponentCount()
     {
-        return positionCount;
+        return POSITION_COMPONENT_COUNT;
     }
     
-    public static int getColorCount()
+    public static int getColorComponentCount()
     {
-        return colorCount;
+        return COLOR_COMPONENT_COUNT;
     }
     
     public static int getVertexStride()
     {
-        return vertexStride;
+        return VERTEX_STRIDE;
     }
     
-    public static int getVertexBinding()
+    public static int getVertexStrideInBytes()
     {
-        return vertexBinding;
+        return VERTEX_STRIDE * Float.BYTES;
+    }
+    
+    public static int getVertexBindingIndex()
+    {
+        return 0;
     }
     
     public static int getPositionLocation()
     {
-        return positionLocation;
+        return POSITION_LOCATION;
     }
     
     public static int getColorLocation()
     {
-        return colorLocation;
+        return COLOR_LOCATION;
     }
     
     public static VkPipelineVertexInputStateCreateInfo getCreateInfo()
@@ -98,19 +105,40 @@ public class VertexSpecification
         createInfo.free();
     }
     
+    
     public static int getColorOffset()
     {
-        return ((positionLocation) + 1) * Float.BYTES;
+        return getPositionComponentCount();
     }
     
-    public static int getPositionOffset()
+    public static int getColorOffsetInBytes()
+    {
+        return getColorOffset() * Float.BYTES;
+    }
+    
+    public static int getPositionOffsetInBytes()
     {
         return 0;
     }
     
     public static int getLastAttribIndex()
     {
-        return colorLocation;
+        return COLOR_LOCATION;
+    }
+    
+    public static int getLastAttribOffsetInBytes()
+    {
+        return getColorOffsetInBytes();
+    }
+    
+    public static int getVertexMemoryFlags()
+    {
+        return VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+    }
+    
+    public static int getBufferUsageFlag()
+    {
+        return VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
     }
     
     public static int getLastAttribOffset()

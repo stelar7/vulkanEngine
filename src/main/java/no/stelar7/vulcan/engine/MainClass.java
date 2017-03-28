@@ -1,5 +1,8 @@
 package no.stelar7.vulcan.engine;
 
+import no.stelar7.vulcan.engine.game.*;
+import no.stelar7.vulcan.engine.render.VulkanRenderer;
+
 public class MainClass
 {
     public static void main(String[] args)

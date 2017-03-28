@@ -1,6 +1,8 @@
-package no.stelar7.vulcan.engine;
+package no.stelar7.vulcan.engine.render;
 
 
+import no.stelar7.vulcan.engine.EngineUtils;
+import no.stelar7.vulcan.engine.game.Game;
 import org.lwjgl.*;
 import org.lwjgl.glfw.*;
 import org.lwjgl.system.*;
@@ -17,32 +19,29 @@ import static org.lwjgl.vulkan.VK10.*;
 
 public class VulkanRenderer
 {
-    private Game game;
+    private Game   game;
+    private Window window;
     
     private final Object lock = new Object();
     private boolean shouldClose;
     
-    
-    private Window window;
-    
     private long debugCallbackHandle = VK_NULL_HANDLE;
-    
-    
-    private int presentQueueIndex  = -1;
-    private int graphicsQueueIndex = -1;
     
     
     private static final int VK_API_VERSION         = VK_MAKE_VERSION(1, 0, 3);
     private static final int VK_APPLICATION_VERSION = VK_MAKE_VERSION(0, 1, 0);
+    
+    private VkPhysicalDeviceProperties       gpuProperties = VkPhysicalDeviceProperties.malloc();
+    private VkPhysicalDeviceFeatures         gpuFeatures   = VkPhysicalDeviceFeatures.malloc();
+    private VkPhysicalDeviceMemoryProperties gpuMemory     = VkPhysicalDeviceMemoryProperties.malloc();
     
     private VkInstance       instance;
     private VkDevice         device;
     private VkPhysicalDevice physicalDevice;
     private VkQueue          queue;
     
-    private VkPhysicalDeviceProperties       gpuProperties = VkPhysicalDeviceProperties.malloc();
-    private VkPhysicalDeviceFeatures         gpuFeatures   = VkPhysicalDeviceFeatures.malloc();
-    private VkPhysicalDeviceMemoryProperties gpuMemory     = VkPhysicalDeviceMemoryProperties.malloc();
+    private int presentQueueIndex  = -1;
+    private int graphicsQueueIndex = -1;
     
     
     public VkPhysicalDeviceProperties getGpuProperties()
@@ -131,16 +130,6 @@ public class VulkanRenderer
             window = createWindow(title, width, height);
             window.createSurface(instance);
             
-            glfwSetWindowRefreshCallback(window.getWindowHandle(), (wHandle) -> render());
-            glfwSetFramebufferSizeCallback(window.getWindowHandle(), (wHandle, w, h) ->
-            {
-                window.getWindowSize().width(w).height(h);
-                if (w != 0 && h != 0)
-                {
-                    //TODO: window.recreateSwapchain(physicalDevice, device);
-                }
-            });
-            
             graphicsQueueIndex = getQueueFamily(physicalDevice);
             presentQueueIndex = getQueueFamily(physicalDevice);
             
@@ -159,6 +148,10 @@ public class VulkanRenderer
             
             window.createPipeline(device, gpuProperties.limits());
             
+            window.createCommandpool(device, graphicsQueueIndex);
+            window.recreateSwapchain(physicalDevice, device);
+            
+
         }
     }
     
@@ -380,8 +373,9 @@ public class VulkanRenderer
                 gpuMemory.free();
                 
                 window.destroy(instance, device);
-                vkDestroyDevice(device, null);
+                game.delete();
                 
+                vkDestroyDevice(device, null);
                 vkDestroyDebugReportCallbackEXT(instance, debugCallbackHandle, null);
                 vkDestroyInstance(instance, null);
                 
@@ -410,6 +404,9 @@ public class VulkanRenderer
         
     }
     
+    /**
+     * returns the allocated size as the 3rd parameter
+     */
     public long createMemory(long buffer, int requiredFlags, long[] allocated)
     {
         try (MemoryStack stack = MemoryStack.stackPush())
@@ -579,11 +576,6 @@ public class VulkanRenderer
             synchronized (lock)
             {
                 shouldClose = window.shouldClose();
-                if (shouldClose)
-                {
-                    game.delete();
-                    return;
-                }
             }
         }
     }

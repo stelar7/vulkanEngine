@@ -1,4 +1,4 @@
-package no.stelar7.vulcan.engine;
+package no.stelar7.vulcan.engine.render;
 
 import org.lwjgl.vulkan.*;
 

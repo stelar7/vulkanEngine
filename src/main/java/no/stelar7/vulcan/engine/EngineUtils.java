@@ -3,6 +3,7 @@ package no.stelar7.vulcan.engine;
 import org.lwjgl.vulkan.*;
 
 import java.io.*;
+import java.nio.FloatBuffer;
 
 import static org.lwjgl.vulkan.EXTDebugReport.*;
 import static org.lwjgl.vulkan.KHRDisplaySwapchain.*;
@@ -156,6 +157,7 @@ public final class EngineUtils
     {
         if (status != VK_SUCCESS)
         {
+            // TODO: write error to file?
             throw new RuntimeException(EngineUtils.vkErrorToString(status));
         }
     }
@@ -211,5 +213,22 @@ public final class EngineUtils
             e.printStackTrace();
             return null;
         }
+    }
+    
+    public static void printBuffer(FloatBuffer data)
+    {
+        StringBuilder result = new StringBuilder("(");
+        
+        data.mark();
+        
+        while (data.remaining() > 0)
+        {
+            result.append(data.get()).append(", ");
+        }
+        
+        result.reverse().deleteCharAt(0).deleteCharAt(0).reverse().append(")");
+        data.reset();
+        
+        System.out.println(result);
     }
 }
