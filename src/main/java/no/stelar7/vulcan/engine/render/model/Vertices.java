@@ -54,7 +54,7 @@ public class Vertices
         {
             PointerBuffer pointer = stack.mallocPointer(1);
             EngineUtils.checkError(vkMapMemory(device, getMemory(), 0, VK_WHOLE_SIZE, 0, pointer));
-            FloatBuffer data = pointer.getFloatBuffer(0, (int) size);
+            FloatBuffer data = pointer.getFloatBuffer(0, (int) size >> 2);
             
             /*int stride = ShaderSpec.getVertexStride();
             for (int i = 0; i < getVertexCount(); i++)
@@ -63,11 +63,12 @@ public class Vertices
                 color.get(i).get(ShaderSpec.getPositionComponentCount() + (i * stride), data);
             }
             */
-            for (int i = 0; i <= 3 * 7; i++)
+            for (int i = 0; i <= data.remaining(); i++)
             {
                 data.put(i);
             }
             data.flip();
+            EngineUtils.printBuffer(data);
             
             VkMappedMemoryRange flushRange = VkMappedMemoryRange.mallocStack(stack)
                                                                 .sType(VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE)

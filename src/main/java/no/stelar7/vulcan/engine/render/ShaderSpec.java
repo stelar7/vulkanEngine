@@ -18,6 +18,11 @@ public final class ShaderSpec
     private static final int COLOR_LOCATION    = 1;
     private static final int VERTEX_STRIDE     = POSITION_COMPONENT_COUNT + COLOR_COMPONENT_COUNT;
     
+    private static final int FORMAT_1_ELEMENTS = VK_FORMAT_R32_SFLOAT;
+    private static final int FORMAT_2_ELEMENTS = VK_FORMAT_R32G32_SFLOAT;
+    private static final int FORMAT_3_ELEMENTS = VK_FORMAT_R32G32B32_SFLOAT;
+    private static final int FORMAT_4_ELEMENTS = VK_FORMAT_R32G32B32A32_SFLOAT;
+    
     private static VkPipelineVertexInputStateCreateInfo     createInfo          = VkPipelineVertexInputStateCreateInfo.malloc();
     private static VkVertexInputBindingDescription.Buffer   vertexBindingBuffer = VkVertexInputBindingDescription.malloc(1);
     private static VkVertexInputAttributeDescription.Buffer vertexAttribsBuffer = VkVertexInputAttributeDescription.malloc(2);
@@ -30,14 +35,14 @@ public final class ShaderSpec
         
         getVertexAttributeBuffer().get(0)
                                   .location(ShaderSpec.getPositionLocation())
-                                  .binding(ShaderSpec.getVertexBindingIndex())
-                                  .format(VK_FORMAT_R32G32B32_SFLOAT)
+                                  .binding(getVertexBindingBuffer().binding())
+                                  .format(FORMAT_3_ELEMENTS)
                                   .offset(ShaderSpec.getPositionOffsetInBytes());
         
         getVertexAttributeBuffer().get(1)
                                   .location(ShaderSpec.getColorLocation())
-                                  .binding(ShaderSpec.getVertexBindingIndex())
-                                  .format(VK_FORMAT_R32G32B32A32_SFLOAT)
+                                  .binding(getVertexBindingBuffer().binding())
+                                  .format(FORMAT_4_ELEMENTS)
                                   .offset(ShaderSpec.getColorOffsetInBytes());
         
         
