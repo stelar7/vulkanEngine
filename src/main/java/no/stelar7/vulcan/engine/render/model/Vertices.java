@@ -38,20 +38,9 @@ public class Vertices
         return pos.size();
     }
     
-    
-    public void setBuffer(long buffer)
-    {
-        this.buffer = buffer;
-    }
-    
     public long getBuffer()
     {
         return buffer;
-    }
-    
-    public void setMemory(long memory)
-    {
-        this.memory = memory;
     }
     
     public long getMemory()
@@ -64,17 +53,32 @@ public class Vertices
         try (MemoryStack stack = MemoryStack.stackPush())
         {
             PointerBuffer pointer = stack.mallocPointer(1);
-            EngineUtils.checkError(vkMapMemory(device, memory, 0, VK_WHOLE_SIZE, 0, pointer));
-            FloatBuffer data = pointer.getFloatBuffer(0, (int) size >> 2);
+            EngineUtils.checkError(vkMapMemory(device, getMemory(), 0, VK_WHOLE_SIZE, 0, pointer));
+            FloatBuffer data = pointer.getFloatBuffer(0, (int) size);
             
-            int stride = ShaderSpec.getVertexStride();
+            /*int stride = ShaderSpec.getVertexStride();
             for (int i = 0; i < getVertexCount(); i++)
             {
                 pos.get(i).get(i * stride, data);
                 color.get(i).get(ShaderSpec.getPositionComponentCount() + (i * stride), data);
             }
+            */
+            for (int i = 0; i <= 3 * 7; i++)
+            {
+                data.put(i);
+            }
+            data.flip();
             
-            vkUnmapMemory(device, memory);
+            VkMappedMemoryRange flushRange = VkMappedMemoryRange.mallocStack(stack)
+                                                                .sType(VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE)
+                                                                .pNext(VK_NULL_HANDLE)
+                                                                .memory(getMemory())
+                                                                .offset(0)
+                                                                .size(VK_WHOLE_SIZE);
+            
+            EngineUtils.checkError(vkFlushMappedMemoryRanges(device, flushRange));
+            
+            vkUnmapMemory(device, getMemory());
             EngineUtils.checkError(vkBindBufferMemory(device, getBuffer(), getMemory(), 0));
         }
     }
@@ -86,7 +90,7 @@ public class Vertices
     
     public void destroy(VkDevice device)
     {
-        vkDestroyBuffer(device, buffer, null);
-        vkFreeMemory(device, memory, null);
+        vkDestroyBuffer(device, getBuffer(), null);
+        vkFreeMemory(device, getMemory(), null);
     }
 }

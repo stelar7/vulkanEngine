@@ -20,9 +20,10 @@ public class TestGame extends Game
         // TODO: nothing to do yet
     }
     
-    private List<Vector3f> pos   = Arrays.asList(new Vector3f(0.0f, -0.5f, 0),
-                                                 new Vector3f(0.5f, 0.5f, 0),
-                                                 new Vector3f(-0.5f, 0.5f, 0));
+    private List<Vector3f> pos = Arrays.asList(new Vector3f(0.0f, -0.5f, 0),
+                                               new Vector3f(0.5f, 0.5f, 0),
+                                               new Vector3f(-0.5f, 0.5f, 0));
+    
     private List<Vector4f> color = Arrays.asList(new Vector4f(1f, 0f, 0f, 1f),
                                                  new Vector4f(0f, 1f, 0f, 1f),
                                                  new Vector4f(0f, 0f, 1f, 1f));
