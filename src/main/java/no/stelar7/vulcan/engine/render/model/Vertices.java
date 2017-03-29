@@ -54,22 +54,34 @@ public class Vertices
         {
             PointerBuffer pointer = stack.mallocPointer(1);
             EngineUtils.checkError(vkMapMemory(device, getMemory(), 0, VK_WHOLE_SIZE, 0, pointer));
-            FloatBuffer data = pointer.getFloatBuffer(0, (int) size >> 2);
             
-            /*int stride = ShaderSpec.getVertexStride();
+            
+            
+            FloatBuffer memoryBuffer = pointer.getFloatBuffer(0, (int) size >> 2);
+            int         stride       = ShaderSpec.getVertexStride();
             for (int i = 0; i < getVertexCount(); i++)
             {
-                pos.get(i).get(i * stride, data);
-                color.get(i).get(ShaderSpec.getPositionComponentCount() + (i * stride), data);
+                pos.get(i).get(i * stride, memoryBuffer);
+                color.get(i).get(ShaderSpec.getPositionComponentCount() + (i * stride), memoryBuffer);
             }
-            */
-            for (int i = 0; i <= data.remaining(); i++)
-            {
-                data.put(i);
-            }
-            data.flip();
-            EngineUtils.printBuffer(data);
             
+            
+            
+            /*
+            ByteBuffer  vertexBuffer = stack.calloc((int) getSizeInBytes());
+            FloatBuffer fb           = vertexBuffer.asFloatBuffer();
+            
+            int stride = ShaderSpec.getVertexStride();
+            for (int i = 0; i < getVertexCount(); i++)
+            {
+                pos.get(i).get(i * stride, fb);
+                color.get(i).get(ShaderSpec.getPositionComponentCount() + (i * stride), fb);
+            }
+            
+            MemoryUtil.memCopy(MemoryUtil.memAddress(vertexBuffer), pointer.get(0), vertexBuffer.remaining());
+            */
+            
+            /*
             VkMappedMemoryRange flushRange = VkMappedMemoryRange.mallocStack(stack)
                                                                 .sType(VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE)
                                                                 .pNext(VK_NULL_HANDLE)
@@ -78,6 +90,7 @@ public class Vertices
                                                                 .size(VK_WHOLE_SIZE);
             
             EngineUtils.checkError(vkFlushMappedMemoryRanges(device, flushRange));
+            */
             
             vkUnmapMemory(device, getMemory());
             EngineUtils.checkError(vkBindBufferMemory(device, getBuffer(), getMemory(), 0));
@@ -86,7 +99,7 @@ public class Vertices
     
     public long getSizeInBytes()
     {
-        return (pos.size() * ShaderSpec.getPositionComponentCount()) + (color.size() * ShaderSpec.getColorComponentCount()) * (long) Float.BYTES;
+        return ShaderSpec.getVertexStrideInBytes() * (long) pos.size();
     }
     
     public void destroy(VkDevice device)
