@@ -151,7 +151,7 @@ public class VulkanRenderer
             window.createCommandpool(device, graphicsQueueIndex);
             window.recreateSwapchain(physicalDevice, device);
             
-
+            
         }
     }
     
@@ -226,8 +226,8 @@ public class VulkanRenderer
         }
         
         return graphicsQueueIndex;
-        
     }
+    
     
     private boolean hasPresentationSupport(VkPhysicalDevice physicalDevice, int index)
     {
@@ -404,10 +404,7 @@ public class VulkanRenderer
         
     }
     
-    /**
-     * returns the allocated size as the 3rd parameter
-     */
-    public long createMemory(long buffer, int requiredFlags, long[] allocated)
+    public long createMemory(long buffer, int requiredFlags)
     {
         try (MemoryStack stack = MemoryStack.stackPush())
         {
@@ -425,8 +422,10 @@ public class VulkanRenderer
             LongBuffer handleHolder = stack.mallocLong(1);
             EngineUtils.checkError(vkAllocateMemory(device, allocateInfo, null, handleHolder));
             
-            allocated[0] = allocateInfo.allocationSize();
-            return handleHolder.get(0);
+            long memory = handleHolder.get(0);
+            EngineUtils.checkError(vkBindBufferMemory(device, buffer, memory, 0));
+            
+            return memory;
         }
     }
     
@@ -447,6 +446,63 @@ public class VulkanRenderer
             EngineUtils.checkError(vkCreateBuffer(device, bufferCreateInfo, null, handleHolder));
             return handleHolder.get(0);
         }
+    }
+    
+    
+    public void copyBuffer(long srcBuffer, long dstBuffer, long size)
+    {
+        try (MemoryStack stack = MemoryStack.stackPush())
+        {
+            VkCommandBufferAllocateInfo allocateInfo = VkCommandBufferAllocateInfo.mallocStack(stack)
+                                                                                  .sType(VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO)
+                                                                                  .pNext(VK_NULL_HANDLE)
+                                                                                  .commandPool(getWindow().getCommandPoolHandle())
+                                                                                  .level(VK_COMMAND_BUFFER_LEVEL_PRIMARY)
+                                                                                  .commandBufferCount(1);
+            PointerBuffer pointerBuffer = stack.callocPointer(1);
+            vkAllocateCommandBuffers(device, allocateInfo, pointerBuffer);
+            
+            VkCommandBuffer buffer = new VkCommandBuffer(pointerBuffer.get(0), device);
+            
+            VkCommandBufferBeginInfo beginInfo = VkCommandBufferBeginInfo.mallocStack(stack)
+                                                                         .sType(VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO)
+                                                                         .pNext(VK_NULL_HANDLE)
+                                                                         .flags(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT)
+                                                                         .pInheritanceInfo(null);
+            
+            EngineUtils.checkError(vkBeginCommandBuffer(buffer, beginInfo));
+            
+            VkBufferCopy.Buffer copyRegion = VkBufferCopy.mallocStack(1, stack)
+                                                         .srcOffset(0)
+                                                         .dstOffset(0)
+                                                         .size(size);
+            
+            vkCmdCopyBuffer(buffer, srcBuffer, dstBuffer, copyRegion);
+            EngineUtils.checkError(vkEndCommandBuffer(buffer));
+            
+            
+            VkSubmitInfo submitInfo = VkSubmitInfo.mallocStack(stack)
+                                                  .sType(VK_STRUCTURE_TYPE_SUBMIT_INFO)
+                                                  .pNext(VK_NULL_HANDLE)
+                                                  .waitSemaphoreCount(0)
+                                                  .pWaitSemaphores(null)
+                                                  .pWaitDstStageMask(null)
+                                                  .pCommandBuffers(stack.pointers(buffer))
+                                                  .pSignalSemaphores(null);
+            
+            EngineUtils.checkError(vkQueueSubmit(getRenderQueue(), submitInfo, VK_NULL_HANDLE));
+            EngineUtils.checkError(vkQueueWaitIdle(getRenderQueue()));
+        }
+    }
+    
+    public void destroyMemory(long memory)
+    {
+        vkFreeMemory(device, memory, null);
+    }
+    
+    public void destroyBuffer(long buffer)
+    {
+        vkDestroyBuffer(device, buffer, null);
     }
     
     private long createVkDebug(int debugFlags)
@@ -614,4 +670,5 @@ public class VulkanRenderer
     {
         return presentQueueIndex;
     }
+    
 }

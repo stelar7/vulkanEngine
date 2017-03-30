@@ -80,6 +80,11 @@ public class Window
         return renderPassHandle;
     }
     
+    public long getCommandPoolHandle()
+    {
+        return commandPoolHandle;
+    }
+    
     public VkExtent2D getWindowSize()
     {
         return windowSize;
@@ -966,4 +971,5 @@ public class Window
             EngineUtils.checkError(vkQueuePresentKHR(renderQueue, presentInfo));
         }
     }
+    
 }
