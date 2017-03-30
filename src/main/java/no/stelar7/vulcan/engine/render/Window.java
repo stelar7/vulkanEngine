@@ -891,6 +891,14 @@ public class Window
         }
     }
     
+    public void bindIndexBuffer(VkCommandBuffer commandBuffer, long indexBuffer)
+    {
+        try (MemoryStack stack = MemoryStack.stackPush())
+        {
+            vkCmdBindIndexBuffer(commandBuffer, indexBuffer, 0, VK_INDEX_TYPE_UINT16);
+        }
+    }
+    
     
     public void setViewPort(VkCommandBuffer commandBuffer)
     {
@@ -923,6 +931,11 @@ public class Window
     public void draw(VkCommandBuffer commandBuffer, int vertexCount)
     {
         vkCmdDraw(commandBuffer, vertexCount, 1, 0, 0);
+    }
+    
+    public void drawIndexed(VkCommandBuffer commandBuffer, int indexCount)
+    {
+        vkCmdDrawIndexed(commandBuffer, indexCount, 1, 0, 0, 0);
     }
     
     public void endRenderPass(VkCommandBuffer commandBuffer)

@@ -28,7 +28,9 @@ public class TestGame extends Game
                                                  new Vector4f(0f, 1f, 0f, 1f),
                                                  new Vector4f(0f, 0f, 1f, 1f));
     
-    private Vertices triangleVertex = new Vertices(renderer, pos, color);
+    private List<Integer> indecies = Arrays.asList(0, 1, 2);
+    
+    private Vertices triangleVertex = new Vertices(renderer, indecies, pos, color);
     
     private VkClearValue.Buffer clearColors     = VkClearValue.calloc(1);
     private VkClearColorValue   clearColorValue = VkClearColorValue.calloc();
@@ -65,14 +67,15 @@ public class TestGame extends Game
             
             window.beginCommandBuffer(window.getCommandBuffer(i));
             window.beginRenderPass(commandBuffer, frameBuffer, clearColors);
-            
             window.bindPipeline(commandBuffer);
+            
             window.bindVertexBuffer(commandBuffer, ShaderSpec.getVertexBindingIndex(), triangleVertex.getVertexBuffer());
+            window.bindIndexBuffer(commandBuffer, triangleVertex.getIndexBuffer());
             
             window.setViewPort(commandBuffer);
             window.setScissor(commandBuffer);
             
-            window.draw(commandBuffer, triangleVertex.getVertexCount());
+            window.drawIndexed(commandBuffer, triangleVertex.getIndexCount());
             
             window.endRenderPass(commandBuffer);
             window.endCommandBuffer(commandBuffer);

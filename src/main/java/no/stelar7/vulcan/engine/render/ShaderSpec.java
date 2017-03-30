@@ -141,7 +141,7 @@ public final class ShaderSpec
         return VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
     }
     
-    public static int getVertexMemoryFlags()
+    public static int getDeviceLocalFlag()
     {
         return VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
     }
@@ -149,6 +149,12 @@ public final class ShaderSpec
     public static int getBufferUsageVertexFlag()
     {
         return VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    }
+    
+    
+    public static int getBufferUsageIndexFlag()
+    {
+        return VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
     }
     
     public static int getBufferUsageTransferFlag()
