@@ -1,6 +1,6 @@
 package no.stelar7.vulcan.engine.render;
 
-import no.stelar7.vulcan.engine.*;
+import no.stelar7.vulcan.engine.EngineUtils;
 import org.lwjgl.*;
 import org.lwjgl.system.*;
 import org.lwjgl.vulkan.*;
@@ -20,15 +20,18 @@ public class Window
     private String               windowName;
     private ColorFormatContainer surfaceFormat;
     
-    private long windowHandle         = VK_NULL_HANDLE;
-    private long surfaceHandle        = VK_NULL_HANDLE;
-    private long swapchainHandle      = VK_NULL_HANDLE;
-    private long renderPassHandle     = VK_NULL_HANDLE;
-    private long pipelineLayoutHandle = VK_NULL_HANDLE;
-    private long pipelineHandle       = VK_NULL_HANDLE;
-    private long commandPoolHandle    = VK_NULL_HANDLE;
-    private long imageReadySemaphore  = VK_NULL_HANDLE;
-    private long renderDoneSemaphore  = VK_NULL_HANDLE;
+    private long windowHandle           = VK_NULL_HANDLE;
+    private long surfaceHandle          = VK_NULL_HANDLE;
+    private long swapchainHandle        = VK_NULL_HANDLE;
+    private long renderPassHandle       = VK_NULL_HANDLE;
+    private long pipelineLayoutHandle   = VK_NULL_HANDLE;
+    private long descriptorLayoutHandle = VK_NULL_HANDLE;
+    private long descriptorPoolHandle   = VK_NULL_HANDLE;
+    private long descriptorSetHandle    = VK_NULL_HANDLE;
+    private long pipelineHandle         = VK_NULL_HANDLE;
+    private long commandPoolHandle      = VK_NULL_HANDLE;
+    private long imageReadySemaphore    = VK_NULL_HANDLE;
+    private long renderDoneSemaphore    = VK_NULL_HANDLE;
     
     private static final int IDEAL_PRESENT_MODE = VK_PRESENT_MODE_MAILBOX_KHR;
     
@@ -85,6 +88,31 @@ public class Window
         return commandPoolHandle;
     }
     
+    public long getPipelineLayoutHandle()
+    {
+        return pipelineLayoutHandle;
+    }
+    
+    public long getDescriptorLayoutHandle()
+    {
+        return descriptorLayoutHandle;
+    }
+    
+    public long getDescriptorPoolHandle()
+    {
+        return descriptorPoolHandle;
+    }
+    
+    public long getDescriptorSetHandle()
+    {
+        return descriptorSetHandle;
+    }
+    
+    public long getPipelineHandle()
+    {
+        return pipelineHandle;
+    }
+    
     public VkExtent2D getWindowSize()
     {
         return windowSize;
@@ -115,6 +143,8 @@ public class Window
         destroySemaphores(device);
         destroyCommandPool(device);
         destroyPipeline(device);
+        destroyDescriptorPool(device);
+        destroyDescriptorSetLayout(device);
         destroyPipelineLayout(device);
         destroyShaders(device);
         destroySwapchainImageViews(device);
@@ -123,6 +153,16 @@ public class Window
         destroySwapchain(device);
         destroySurface(instance);
         destroyWindow();
+    }
+    
+    private void destroyDescriptorPool(VkDevice device)
+    {
+        vkDestroyDescriptorPool(device, descriptorPoolHandle, null);
+    }
+    
+    private void destroyDescriptorSetLayout(VkDevice device)
+    {
+        vkDestroyDescriptorSetLayout(device, descriptorLayoutHandle, null);
     }
     
     private void destroySemaphores(VkDevice device)
@@ -593,17 +633,24 @@ public class Window
     {
         try (MemoryStack stack = MemoryStack.stackPush())
         {
+            VkDescriptorSetLayoutCreateInfo setLayoutCreateInfo = VkDescriptorSetLayoutCreateInfo.mallocStack(stack)
+                                                                                                 .sType(VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO)
+                                                                                                 .pNext(VK_NULL_HANDLE)
+                                                                                                 .flags(0)
+                                                                                                 .pBindings(ShaderSpec.getUniformLayoutBinding());
+            
+            LongBuffer handleBuffer = stack.callocLong(1);
+            EngineUtils.checkError(vkCreateDescriptorSetLayout(device, setLayoutCreateInfo, null, handleBuffer));
+            descriptorLayoutHandle = handleBuffer.get(0);
             
             VkPipelineLayoutCreateInfo createInfo = VkPipelineLayoutCreateInfo.mallocStack(stack)
                                                                               .sType(VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO)
                                                                               .pNext(VK_NULL_HANDLE)
                                                                               .flags(0)
-                                                                              .pSetLayouts(null)
+                                                                              .pSetLayouts(handleBuffer)
                                                                               .pPushConstantRanges(null);
             
-            LongBuffer handleBuffer = stack.callocLong(1);
             EngineUtils.checkError(vkCreatePipelineLayout(device, createInfo, null, handleBuffer));
-            
             pipelineLayoutHandle = handleBuffer.get(0);
         }
     }
@@ -784,7 +831,47 @@ public class Window
             createSwapchainImageViews(device);
             createFramebuffers(device);
             createCommandBuffers(device, commandPoolHandle, swapchainImageViews.size());
+            createDescriptorSetPool(device);
+            createDescriptorSet(device);
             createSemaphores(device);
+        }
+    }
+    
+    private void createDescriptorSet(VkDevice device)
+    {
+        try (MemoryStack stack = MemoryStack.stackPush())
+        {
+            VkDescriptorSetAllocateInfo allocateInfo = VkDescriptorSetAllocateInfo.mallocStack(stack)
+                                                                                  .sType(VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO)
+                                                                                  .pNext(VK_NULL_HANDLE)
+                                                                                  .descriptorPool(descriptorPoolHandle)
+                                                                                  .pSetLayouts(stack.longs(descriptorLayoutHandle));
+            
+            LongBuffer handleHolder = stack.mallocLong(1);
+            EngineUtils.checkError(vkAllocateDescriptorSets(device, allocateInfo, handleHolder));
+            descriptorSetHandle = handleHolder.get(0);
+        }
+    }
+    
+    private void createDescriptorSetPool(VkDevice device)
+    {
+        try (MemoryStack stack = MemoryStack.stackPush())
+        {
+            VkDescriptorPoolSize.Buffer descriptorPoolSize       = VkDescriptorPoolSize.mallocStack(1, stack);
+            VkDescriptorPoolCreateInfo  descriptorPoolCreateInfo = VkDescriptorPoolCreateInfo.mallocStack(stack);
+            
+            descriptorPoolSize.type(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER)
+                              .descriptorCount(1);
+            
+            descriptorPoolCreateInfo.sType(VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO)
+                                    .pNext(VK_NULL_HANDLE)
+                                    .flags(0)
+                                    .pPoolSizes(descriptorPoolSize)
+                                    .maxSets(1);
+            
+            LongBuffer handleHolder = stack.mallocLong(1);
+            EngineUtils.checkError(vkCreateDescriptorPool(device, descriptorPoolCreateInfo, null, handleHolder));
+            descriptorPoolHandle = handleHolder.get(0);
         }
     }
     
@@ -985,4 +1072,11 @@ public class Window
         }
     }
     
+    public void bindDescriptorSet(VkCommandBuffer commandBuffer)
+    {
+        try (MemoryStack stack = MemoryStack.stackPush())
+        {
+            vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayoutHandle, 0, stack.longs(descriptorSetHandle), null);
+        }
+    }
 }

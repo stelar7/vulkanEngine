@@ -1,5 +1,6 @@
 package no.stelar7.vulcan.engine.render;
 
+import org.joml.Matrix4f;
 import org.lwjgl.vulkan.*;
 
 import static org.lwjgl.vulkan.VK10.*;
@@ -27,6 +28,33 @@ public final class ShaderSpec
     private static VkVertexInputBindingDescription.Buffer   vertexBindingBuffer = VkVertexInputBindingDescription.malloc(1);
     private static VkVertexInputAttributeDescription.Buffer vertexAttribsBuffer = VkVertexInputAttributeDescription.malloc(2);
     
+    private static VkDescriptorSetLayoutBinding.Buffer uniformLayoutBinding = VkDescriptorSetLayoutBinding.malloc(1);
+    
+    public static final class UniformSpec
+    {
+        private Matrix4f model;
+        private Matrix4f view;
+        private Matrix4f perspective;
+        
+        public Matrix4f getModel()
+        {
+            return model;
+        }
+        
+        public Matrix4f getView()
+        {
+            return view;
+        }
+        
+        public Matrix4f getPerspective()
+        {
+            return perspective;
+        }
+        
+        public static final int ELEMENT_SIZE = 16 + 16 + 16;
+        public static final int BYTE_SIZE    = ELEMENT_SIZE * Float.BYTES;
+    }
+    
     static
     {
         getVertexBindingBuffer().binding(ShaderSpec.getVertexBindingIndex())
@@ -51,7 +79,17 @@ public final class ShaderSpec
                        .flags(0)
                        .pVertexBindingDescriptions(getVertexBindingBuffer())
                        .pVertexAttributeDescriptions(getVertexAttributeBuffer());
+        
+        getUniformLayoutBinding().get(0)
+                                 .binding(getVertexBindingBuffer().binding())
+                                 .stageFlags(VK_SHADER_STAGE_VERTEX_BIT)
+                                 .pImmutableSamplers(null)
+                                 .descriptorType(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER)
+                                 .descriptorCount(1);
+        
+        
     }
+    
     
     public static int getPositionComponentCount()
     {
@@ -88,6 +126,11 @@ public final class ShaderSpec
         return COLOR_LOCATION;
     }
     
+    public static VkDescriptorSetLayoutBinding.Buffer getUniformLayoutBinding()
+    {
+        return uniformLayoutBinding;
+    }
+    
     public static VkPipelineVertexInputStateCreateInfo getCreateInfo()
     {
         return createInfo;
@@ -103,11 +146,14 @@ public final class ShaderSpec
         return vertexAttribsBuffer;
     }
     
+    
     public static void destroy()
     {
         vertexBindingBuffer.free();
         vertexAttribsBuffer.free();
         createInfo.free();
+        
+        uniformLayoutBinding.free();
     }
     
     
@@ -151,6 +197,10 @@ public final class ShaderSpec
         return VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
     }
     
+    public static int getBufferUsageUniformFlag()
+    {
+        return VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+    }
     
     public static int getBufferUsageIndexFlag()
     {
