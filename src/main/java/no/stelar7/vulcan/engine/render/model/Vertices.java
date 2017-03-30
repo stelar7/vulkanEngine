@@ -33,13 +33,13 @@ public class Vertices
     
     private void setupIndexBuffer(VulkanRenderer renderer, List<Integer> inds)
     {
-        long stagingBuffer = renderer.createBuffer(ShaderSpec.getBufferUsageTransferFlag(), getSizeInBytes());
+        long stagingBuffer = renderer.createBuffer(ShaderSpec.getBufferUsageTransferFlag(), getIndexSizeInBytes());
         long stagingMemory = renderer.createMemory(stagingBuffer, ShaderSpec.getTransferMemoryFlags());
         setIndexBufferData(renderer.getDevice(), inds, stagingMemory);
         
-        indexBuffer = renderer.createBuffer(ShaderSpec.getBufferUsageIndexFlag(), getSizeInBytes());
+        indexBuffer = renderer.createBuffer(ShaderSpec.getBufferUsageIndexFlag(), getIndexSizeInBytes());
         indexMemory = renderer.createMemory(indexBuffer, ShaderSpec.getDeviceLocalFlag());
-        renderer.copyBuffer(stagingBuffer, indexBuffer, getSizeInBytes());
+        renderer.copyBuffer(stagingBuffer, indexBuffer, getIndexSizeInBytes());
         
         renderer.destroyBuffer(stagingBuffer);
         renderer.destroyMemory(stagingMemory);
@@ -52,7 +52,7 @@ public class Vertices
             PointerBuffer pointer = stack.mallocPointer(1);
             EngineUtils.checkError(vkMapMemory(device, memory, 0, VK_WHOLE_SIZE, 0, pointer));
             
-            FloatBuffer memoryBuffer = pointer.getFloatBuffer(0, getSize());
+            IntBuffer memoryBuffer = pointer.getIntBuffer(0, getVertexSize());
             for (int i = 0; i < getIndexCount(); i++)
             {
                 memoryBuffer.put(i, inds.get(i));
@@ -64,13 +64,13 @@ public class Vertices
     
     private void setupVertexBuffer(VulkanRenderer renderer, List<Vector3f> pos, List<Vector4f> color)
     {
-        long stagingBuffer = renderer.createBuffer(ShaderSpec.getBufferUsageTransferFlag(), getSizeInBytes());
+        long stagingBuffer = renderer.createBuffer(ShaderSpec.getBufferUsageTransferFlag(), getVertexSizeInBytes());
         long stagingMemory = renderer.createMemory(stagingBuffer, ShaderSpec.getTransferMemoryFlags());
         setVertexBufferData(renderer.getDevice(), pos, color, stagingMemory);
         
-        vertexBuffer = renderer.createBuffer(ShaderSpec.getBufferUsageVertexFlag(), getSizeInBytes());
+        vertexBuffer = renderer.createBuffer(ShaderSpec.getBufferUsageVertexFlag(), getVertexSizeInBytes());
         vertexMemory = renderer.createMemory(vertexBuffer, ShaderSpec.getDeviceLocalFlag());
-        renderer.copyBuffer(stagingBuffer, vertexBuffer, getSizeInBytes());
+        renderer.copyBuffer(stagingBuffer, vertexBuffer, getVertexSizeInBytes());
         
         renderer.destroyBuffer(stagingBuffer);
         renderer.destroyMemory(stagingMemory);
@@ -84,7 +84,7 @@ public class Vertices
             EngineUtils.checkError(vkMapMemory(device, memory, 0, VK_WHOLE_SIZE, 0, pointer));
             
             
-            FloatBuffer memoryBuffer = pointer.getFloatBuffer(0, getSize());
+            FloatBuffer memoryBuffer = pointer.getFloatBuffer(0, getVertexSize());
             int         stride       = ShaderSpec.getVertexStride();
             for (int i = 0; i < pos.size(); i++)
             {
@@ -122,16 +122,20 @@ public class Vertices
         return indexMemory;
     }
     
-    public int getSizeInBytes()
+    public int getVertexSizeInBytes()
     {
         return ShaderSpec.getVertexStrideInBytes() * size;
     }
     
-    public int getSize()
+    public int getVertexSize()
     {
         return ShaderSpec.getVertexStride() * size;
     }
     
+    public int getIndexSizeInBytes()
+    {
+        return size * Integer.BYTES;
+    }
     
     public void destroy(VkDevice device)
     {

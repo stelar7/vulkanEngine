@@ -895,7 +895,7 @@ public class Window
     {
         try (MemoryStack stack = MemoryStack.stackPush())
         {
-            vkCmdBindIndexBuffer(commandBuffer, indexBuffer, 0, VK_INDEX_TYPE_UINT16);
+            vkCmdBindIndexBuffer(commandBuffer, indexBuffer, 0, VK_INDEX_TYPE_UINT32);
         }
     }
     
