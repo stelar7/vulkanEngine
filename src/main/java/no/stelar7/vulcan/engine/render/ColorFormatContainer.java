@@ -8,7 +8,7 @@ public class ColorFormatContainer
     private int format;
     private int colorSpace;
     
-    public ColorFormatContainer(VkSurfaceFormatKHR surface)
+    public void set(VkSurfaceFormatKHR surface)
     {
         format = surface.format();
         colorSpace = surface.colorSpace();

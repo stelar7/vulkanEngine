@@ -126,7 +126,7 @@ public class Window
         this.windowSize = windowSize.width(width).height(height);
         this.windowName = name;
         
-        createWindow();
+        initWindow();
     }
     
     public boolean shouldClose()
@@ -243,7 +243,7 @@ public class Window
     }
     
     
-    private void createWindow()
+    private void initWindow()
     {
         try (MemoryStack stack = MemoryStack.stackPush())
         {
@@ -413,24 +413,19 @@ public class Window
     {
         VkSurfaceFormatKHR.Buffer formats = getSurfaceFormats(physicalDevice);
         
-        for (int i = 0; i < formats.remaining(); i++)
+        surfaceFormat = new ColorFormatContainer();
+        surfaceFormat.setColorSpace(formats.colorSpace());
+        
+        if (formats.capacity() == 1 && formats.format() == VK_FORMAT_UNDEFINED)
         {
-            formats.position(i);
-            
-            if (formats.format() == VK_FORMAT_B8G8R8A8_UNORM)
-            {
-                if (formats.colorSpace() == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR)
-                {
-                    System.out.println("Selected surface color format: " + EngineUtils.vkFormatToString(VK_FORMAT_B8G8R8A8_UNORM));
-                    System.out.println("Selected surface color space: " + EngineUtils.vkColorSpaceToString(VK_COLOR_SPACE_SRGB_NONLINEAR_KHR));
-                    System.out.println();
-                    surfaceFormat = new ColorFormatContainer(formats.get());
-                    return;
-                }
-            }
+            surfaceFormat.setFormat(VK_FORMAT_B8G8R8_UNORM);
+        } else
+        {
+            surfaceFormat.setFormat(formats.format());
         }
         
-        throw new RuntimeException("No suitable color format found");
+        System.out.println("Selected surface color format: " + EngineUtils.vkFormatToString(surfaceFormat.getFormat()));
+        System.out.println("Selected surface color space: " + EngineUtils.vkColorSpaceToString(surfaceFormat.getColorSpace()));
     }
     
     public String getTitle()
@@ -777,8 +772,8 @@ public class Window
             
             VkPipelineColorBlendAttachmentState.Buffer colorBlendAttachment = VkPipelineColorBlendAttachmentState.mallocStack(1, stack)
                                                                                                                  .blendEnable(false)
-                                                                                                                 .srcColorBlendFactor(VK_BLEND_FACTOR_ZERO)
-                                                                                                                 .dstColorBlendFactor(VK_BLEND_FACTOR_ZERO)
+                                                                                                                 .srcColorBlendFactor(VK_BLEND_FACTOR_SRC_COLOR)
+                                                                                                                 .dstColorBlendFactor(VK_BLEND_FACTOR_ONE_MINUS_DST_ALPHA)
                                                                                                                  .colorBlendOp(VK_BLEND_OP_ADD)
                                                                                                                  .srcAlphaBlendFactor(VK_BLEND_FACTOR_ZERO)
                                                                                                                  .dstColorBlendFactor(VK_BLEND_FACTOR_ZERO)
@@ -790,7 +785,7 @@ public class Window
                                                                                                                .pNext(VK_NULL_HANDLE)
                                                                                                                .flags(0)
                                                                                                                .logicOpEnable(false)
-                                                                                                               .logicOp(VK_LOGIC_OP_COPY)
+                                                                                                               .logicOp(VK_LOGIC_OP_CLEAR)
                                                                                                                .pAttachments(colorBlendAttachment)
                                                                                                                .blendConstants(0, 0)
                                                                                                                .blendConstants(1, 0)
@@ -844,7 +839,7 @@ public class Window
                                                                                                  .renderPass(renderPassHandle)
                                                                                                  .subpass(0)
                                                                                                  .basePipelineHandle(VK_NULL_HANDLE)
-                                                                                                 .basePipelineIndex(-1);
+                                                                                                 .basePipelineIndex(0);
             
             LongBuffer handleHolder = stack.mallocLong(1);
             EngineUtils.checkError(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, pipelineCreateInfo, null, handleHolder));
@@ -853,7 +848,7 @@ public class Window
         }
     }
     
-    public void createCommandpool(VkDevice device, int graphicsQueueIndex)
+    public void createCommandpool(VkDevice device, int queueIndex)
     {
         try (MemoryStack stack = MemoryStack.stackPush())
         {
@@ -861,7 +856,7 @@ public class Window
                                                                         .sType(VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO)
                                                                         .pNext(VK_NULL_HANDLE)
                                                                         .flags(0)
-                                                                        .queueFamilyIndex(graphicsQueueIndex);
+                                                                        .queueFamilyIndex(queueIndex);
             
             LongBuffer handleHolder = stack.mallocLong(1);
             EngineUtils.checkError(vkCreateCommandPool(device, createInfo, null, handleHolder));
@@ -869,31 +864,7 @@ public class Window
         }
     }
     
-    public void recreateSwapchain(VkPhysicalDevice physicalDevice, VkDevice device, VkPhysicalDeviceMemoryProperties memoryProperties, VkQueue queue)
-    {
-        try (MemoryStack stack = MemoryStack.stackPush())
-        {
-            
-            EngineUtils.checkError(vkDeviceWaitIdle(device));
-            EngineUtils.checkError(vkResetCommandPool(device, commandPoolHandle, 0));
-            
-            destroySemaphores(device);
-            destroyFramebuffers(device);
-            destroySwapchainImageViews(device);
-            destroySwapchain(device);
-            
-            createDepthImage(device, memoryProperties, queue);
-            createSwapchain(physicalDevice, device);
-            createSwapchainImageViews(device);
-            createFramebuffers(device);
-            createCommandBuffers(device, commandPoolHandle, swapchainImageViews.size());
-            createDescriptorSetPool(device);
-            createDescriptorSet(device);
-            createSemaphores(device);
-        }
-    }
-    
-    private void createDepthImage(VkDevice device, VkPhysicalDeviceMemoryProperties memory, VkQueue renderQueue)
+    public void createDepthImage(VkDevice device, VkPhysicalDeviceMemoryProperties memory, VkQueue renderQueue)
     {
         try (MemoryStack stack = MemoryStack.stackPush())
         {
@@ -1018,7 +989,7 @@ public class Window
         }
     }
     
-    private void createDescriptorSet(VkDevice device)
+    public void createDescriptorSet(VkDevice device)
     {
         try (MemoryStack stack = MemoryStack.stackPush())
         {
@@ -1034,7 +1005,7 @@ public class Window
         }
     }
     
-    private void createDescriptorSetPool(VkDevice device)
+    public void createDescriptorSetPool(VkDevice device)
     {
         try (MemoryStack stack = MemoryStack.stackPush())
         {
@@ -1056,7 +1027,7 @@ public class Window
         }
     }
     
-    private void createSemaphores(VkDevice device)
+    public void createSemaphores(VkDevice device)
     {
         imageReadySemaphore = createSemaphore(device);
         renderDoneSemaphore = createSemaphore(device);
@@ -1077,15 +1048,16 @@ public class Window
         }
     }
     
-    private void createCommandBuffers(VkDevice device, long commandPoolHandle, int size)
+    public void createCommandBuffers(VkDevice device)
     {
         try (MemoryStack stack = MemoryStack.stackPush())
         {
             int currentSize = commandBuffers.size();
+            int requestSize = swapchainImageViews.size();
             
-            if (size > currentSize)
+            if (requestSize > currentSize)
             {
-                int requestCount = size - currentSize;
+                int requestCount = requestSize - currentSize;
                 
                 VkCommandBufferAllocateInfo allocateInfo = VkCommandBufferAllocateInfo.mallocStack(stack)
                                                                                       .sType(VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO)

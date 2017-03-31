@@ -72,8 +72,8 @@ public class TestGame extends Game
             
             window.beginCommandBuffer(window.getCommandBuffer(i));
             window.beginRenderPass(commandBuffer, frameBuffer, clearColors);
-            window.bindPipeline(commandBuffer);
             
+            window.bindPipeline(commandBuffer);
             window.bindVertexBuffer(commandBuffer, ShaderSpec.getVertexBindingIndex(), triangleVertex.getVertexBuffer());
             window.bindIndexBuffer(commandBuffer, triangleVertex.getIndexBuffer());
             
