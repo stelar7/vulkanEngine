@@ -32,8 +32,9 @@ public class TestGame extends Game
     
     private Vertices triangleVertex = new Vertices(renderer, indecies, pos, color);
     
-    private VkClearValue.Buffer clearColors     = VkClearValue.calloc(1);
-    private VkClearColorValue   clearColorValue = VkClearColorValue.calloc();
+    private VkClearValue.Buffer      clearColors     = VkClearValue.calloc(2);
+    private VkClearColorValue        clearColorValue = VkClearColorValue.calloc();
+    private VkClearDepthStencilValue clearDepthValue = VkClearDepthStencilValue.calloc();
     
     
     @Override
@@ -48,6 +49,7 @@ public class TestGame extends Game
     public void delete()
     {
         triangleVertex.destroy(renderer.getDevice());
+        clearDepthValue.free();
         clearColorValue.free();
         clearColors.free();
     }
@@ -56,7 +58,10 @@ public class TestGame extends Game
     public void init()
     {
         clearColorValue.float32(0, 0.3f).float32(1, 0.3f).float32(2, .3f).float32(3, 1f);
-        clearColors.color(clearColorValue);
+        clearDepthValue.depth(0);
+        
+        clearColors.get(0).color(clearColorValue);
+        clearColors.get(1).depthStencil(clearDepthValue);
         
         Window window = renderer.getWindow();
         

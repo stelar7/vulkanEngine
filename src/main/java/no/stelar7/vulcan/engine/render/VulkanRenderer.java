@@ -141,14 +141,13 @@ public class VulkanRenderer
             window.createSwapchainImageViews(device);
             
             window.createRenderPass(device);
-            window.createFramebuffers(device);
             
             window.createShaders(device);
             window.createPipelineLayout(device);
             window.createPipeline(device, gpuProperties.limits());
             
             window.createCommandpool(device, graphicsQueueIndex);
-            window.recreateSwapchain(physicalDevice, device);
+            window.recreateSwapchain(physicalDevice, device, gpuMemory, queue);
         }
     }
     

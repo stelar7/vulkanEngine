@@ -24,6 +24,9 @@ public class Window
     private long surfaceHandle          = VK_NULL_HANDLE;
     private long swapchainHandle        = VK_NULL_HANDLE;
     private long renderPassHandle       = VK_NULL_HANDLE;
+    private long depthImageHandle       = VK_NULL_HANDLE;
+    private long depthImageMemory       = VK_NULL_HANDLE;
+    private long depthImageviewHandle   = VK_NULL_HANDLE;
     private long pipelineLayoutHandle   = VK_NULL_HANDLE;
     private long descriptorLayoutHandle = VK_NULL_HANDLE;
     private long descriptorPoolHandle   = VK_NULL_HANDLE;
@@ -140,6 +143,8 @@ public class Window
         
         ShaderSpec.destroy();
         
+        
+        destroyDepthImage(device);
         destroySemaphores(device);
         destroyCommandPool(device);
         destroyPipeline(device);
@@ -153,6 +158,13 @@ public class Window
         destroySwapchain(device);
         destroySurface(instance);
         destroyWindow();
+    }
+    
+    private void destroyDepthImage(VkDevice device)
+    {
+        vkFreeMemory(device, depthImageMemory, null);
+        vkDestroyImageView(device, depthImageviewHandle, null);
+        vkDestroyImage(device, depthImageHandle, null);
     }
     
     private void destroyDescriptorPool(VkDevice device)
@@ -512,20 +524,40 @@ public class Window
     {
         try (MemoryStack stack = MemoryStack.stackPush())
         {
-            VkAttachmentDescription.Buffer colorAttachment = VkAttachmentDescription.mallocStack(1, stack)
-                                                                                    .flags(0)
-                                                                                    .format(surfaceFormat.getFormat())
-                                                                                    .samples(VK_SAMPLE_COUNT_1_BIT)
-                                                                                    .loadOp(VK_ATTACHMENT_LOAD_OP_CLEAR)
-                                                                                    .storeOp(VK_ATTACHMENT_STORE_OP_STORE)
-                                                                                    .stencilLoadOp(VK_ATTACHMENT_LOAD_OP_DONT_CARE)
-                                                                                    .stencilStoreOp(VK_ATTACHMENT_STORE_OP_DONT_CARE)
-                                                                                    .initialLayout(VK_IMAGE_LAYOUT_UNDEFINED)
-                                                                                    .finalLayout(VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+            VkAttachmentDescription.Buffer attachments = VkAttachmentDescription.mallocStack(2, stack);
+            
+            // Color
+            attachments.get(0)
+                       .flags(0)
+                       .format(surfaceFormat.getFormat())
+                       .samples(VK_SAMPLE_COUNT_1_BIT)
+                       .loadOp(VK_ATTACHMENT_LOAD_OP_CLEAR)
+                       .storeOp(VK_ATTACHMENT_STORE_OP_STORE)
+                       .stencilLoadOp(VK_ATTACHMENT_LOAD_OP_DONT_CARE)
+                       .stencilStoreOp(VK_ATTACHMENT_STORE_OP_DONT_CARE)
+                       .initialLayout(VK_IMAGE_LAYOUT_UNDEFINED)
+                       .finalLayout(VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+            
+            // Depth
+            attachments.get(1)
+                       .flags(0)
+                       .format(VK_FORMAT_D32_SFLOAT)
+                       .samples(VK_SAMPLE_COUNT_1_BIT)
+                       .loadOp(VK_ATTACHMENT_LOAD_OP_CLEAR)
+                       .storeOp(VK_ATTACHMENT_STORE_OP_DONT_CARE)
+                       .stencilLoadOp(VK_ATTACHMENT_LOAD_OP_DONT_CARE)
+                       .stencilStoreOp(VK_ATTACHMENT_STORE_OP_DONT_CARE)
+                       .initialLayout(VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
+                       .finalLayout(VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
             
             VkAttachmentReference.Buffer colorReference = VkAttachmentReference.mallocStack(1, stack)
                                                                                .attachment(0)
                                                                                .layout(VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+            
+            VkAttachmentReference depthReference = VkAttachmentReference.mallocStack(stack)
+                                                                        .attachment(1)
+                                                                        .layout(VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+            
             
             VkSubpassDescription.Buffer subpass = VkSubpassDescription.mallocStack(1, stack)
                                                                       .flags(0)
@@ -534,7 +566,7 @@ public class Window
                                                                       .colorAttachmentCount(1)
                                                                       .pColorAttachments(colorReference)
                                                                       .pResolveAttachments(null)
-                                                                      .pDepthStencilAttachment(null)
+                                                                      .pDepthStencilAttachment(depthReference)
                                                                       .pPreserveAttachments(null);
             
             VkSubpassDependency srcDependency = VkSubpassDependency.mallocStack(stack)
@@ -564,7 +596,7 @@ public class Window
                                                                       .sType(VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO)
                                                                       .pNext(VK_NULL_HANDLE)
                                                                       .flags(0)
-                                                                      .pAttachments(colorAttachment)
+                                                                      .pAttachments(attachments)
                                                                       .pSubpasses(subpass)
                                                                       .pDependencies(dependencies);
             
@@ -589,7 +621,7 @@ public class Window
                                                                             .pNext(VK_NULL_HANDLE)
                                                                             .flags(0)
                                                                             .renderPass(renderPassHandle)
-                                                                            .pAttachments(stack.longs(imageView))
+                                                                            .pAttachments(stack.longs(imageView, depthImageviewHandle))
                                                                             .width(windowSize.width())
                                                                             .height(windowSize.height())
                                                                             .layers(1);
@@ -771,6 +803,29 @@ public class Window
                                                                                                       .flags(0)
                                                                                                       .pDynamicStates(stack.ints(VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR));
             
+            VkStencilOpState noOpState = VkStencilOpState.mallocStack(stack)
+                                                         .failOp(VK_STENCIL_OP_KEEP)
+                                                         .passOp(VK_STENCIL_OP_KEEP)
+                                                         .depthFailOp(VK_STENCIL_OP_KEEP)
+                                                         .compareOp(VK_COMPARE_OP_ALWAYS)
+                                                         .compareMask(0)
+                                                         .writeMask(0)
+                                                         .reference(0);
+            
+            VkPipelineDepthStencilStateCreateInfo stencilStateCreateInfo = VkPipelineDepthStencilStateCreateInfo.mallocStack(stack)
+                                                                                                                .sType(VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO)
+                                                                                                                .pNext(VK_NULL_HANDLE)
+                                                                                                                .flags(0)
+                                                                                                                .depthTestEnable(true)
+                                                                                                                .depthWriteEnable(true)
+                                                                                                                .depthCompareOp(VK_COMPARE_OP_LESS_OR_EQUAL)
+                                                                                                                .depthBoundsTestEnable(false)
+                                                                                                                .stencilTestEnable(false)
+                                                                                                                .front(noOpState)
+                                                                                                                .back(noOpState)
+                                                                                                                .minDepthBounds(0)
+                                                                                                                .maxDepthBounds(0);
+            
             VkGraphicsPipelineCreateInfo.Buffer pipelineCreateInfo = VkGraphicsPipelineCreateInfo.mallocStack(1, stack)
                                                                                                  .sType(VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO)
                                                                                                  .pNext(VK_NULL_HANDLE)
@@ -782,7 +837,7 @@ public class Window
                                                                                                  .pViewportState(viewportStateCreateInfo)
                                                                                                  .pRasterizationState(rasterizationStateCreateInfo)
                                                                                                  .pMultisampleState(multisampleStateCreateInfo)
-                                                                                                 .pDepthStencilState(null)
+                                                                                                 .pDepthStencilState(stencilStateCreateInfo)
                                                                                                  .pColorBlendState(colorBlendStateCreateInfo)
                                                                                                  .pDynamicState(dynamicStateCreateInfo)
                                                                                                  .layout(pipelineLayoutHandle)
@@ -814,7 +869,7 @@ public class Window
         }
     }
     
-    public void recreateSwapchain(VkPhysicalDevice physicalDevice, VkDevice device)
+    public void recreateSwapchain(VkPhysicalDevice physicalDevice, VkDevice device, VkPhysicalDeviceMemoryProperties memoryProperties, VkQueue queue)
     {
         try (MemoryStack stack = MemoryStack.stackPush())
         {
@@ -827,6 +882,7 @@ public class Window
             destroySwapchainImageViews(device);
             destroySwapchain(device);
             
+            createDepthImage(device, memoryProperties, queue);
             createSwapchain(physicalDevice, device);
             createSwapchainImageViews(device);
             createFramebuffers(device);
@@ -834,6 +890,131 @@ public class Window
             createDescriptorSetPool(device);
             createDescriptorSet(device);
             createSemaphores(device);
+        }
+    }
+    
+    private void createDepthImage(VkDevice device, VkPhysicalDeviceMemoryProperties memory, VkQueue renderQueue)
+    {
+        try (MemoryStack stack = MemoryStack.stackPush())
+        {
+            // Create depth image
+            
+            VkImageCreateInfo createInfo = VkImageCreateInfo.mallocStack(stack)
+                                                            .sType(VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO)
+                                                            .pNext(VK_NULL_HANDLE)
+                                                            .flags(0)
+                                                            .imageType(VK_IMAGE_TYPE_2D)
+                                                            .format(VK_FORMAT_D32_SFLOAT)
+                                                            .extent(VkExtent3D.mallocStack(stack)
+                                                                              .width(getWindowSize().width())
+                                                                              .height(getWindowSize().height())
+                                                                              .depth(1))
+                                                            .mipLevels(1)
+                                                            .arrayLayers(1)
+                                                            .samples(VK_SAMPLE_COUNT_1_BIT)
+                                                            .tiling(VK_IMAGE_TILING_OPTIMAL)
+                                                            .usage(VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT)
+                                                            .sharingMode(VK_SHARING_MODE_EXCLUSIVE)
+                                                            .pQueueFamilyIndices(null)
+                                                            .initialLayout(VK_IMAGE_LAYOUT_UNDEFINED);
+            
+            LongBuffer handleHolder = stack.callocLong(1);
+            EngineUtils.checkError(vkCreateImage(device, createInfo, null, handleHolder));
+            depthImageHandle = handleHolder.get(0);
+            
+            // Create depth memory
+            
+            VkMemoryRequirements memoryReq = VkMemoryRequirements.mallocStack(stack);
+            vkGetImageMemoryRequirements(device, depthImageHandle, memoryReq);
+            int index = EngineUtils.findMemoryTypeIndex(memory, memoryReq, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+            
+            VkMemoryAllocateInfo allocateInfo = VkMemoryAllocateInfo.mallocStack(stack)
+                                                                    .sType(VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO)
+                                                                    .pNext(VK_NULL_HANDLE)
+                                                                    .memoryTypeIndex(index)
+                                                                    .allocationSize(memoryReq.size());
+            
+            EngineUtils.checkError(vkAllocateMemory(device, allocateInfo, null, handleHolder));
+            depthImageMemory = handleHolder.get(0);
+            EngineUtils.checkError(vkBindImageMemory(device, depthImageHandle, depthImageMemory, 0));
+            
+            // Set image layout
+            
+            VkCommandBufferAllocateInfo bufferAllocateInfo = VkCommandBufferAllocateInfo.mallocStack(stack)
+                                                                                        .sType(VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO)
+                                                                                        .pNext(VK_NULL_HANDLE)
+                                                                                        .commandPool(getCommandPoolHandle())
+                                                                                        .level(VK_COMMAND_BUFFER_LEVEL_PRIMARY)
+                                                                                        .commandBufferCount(1);
+            PointerBuffer pointerBuffer = stack.callocPointer(1);
+            vkAllocateCommandBuffers(device, bufferAllocateInfo, pointerBuffer);
+            
+            VkCommandBuffer buffer = new VkCommandBuffer(pointerBuffer.get(0), device);
+            
+            VkCommandBufferBeginInfo beginInfo = VkCommandBufferBeginInfo.mallocStack(stack)
+                                                                         .sType(VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO)
+                                                                         .pNext(VK_NULL_HANDLE)
+                                                                         .flags(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT)
+                                                                         .pInheritanceInfo(null);
+            
+            vkBeginCommandBuffer(buffer, beginInfo);
+            
+            
+            VkImageSubresourceRange subresourceRange = VkImageSubresourceRange.mallocStack(stack)
+                                                                              .aspectMask(VK_IMAGE_ASPECT_DEPTH_BIT)
+                                                                              .baseMipLevel(0)
+                                                                              .levelCount(1)
+                                                                              .baseArrayLayer(0)
+                                                                              .layerCount(1);
+            
+            VkImageMemoryBarrier.Buffer imageMemoryBarrier = VkImageMemoryBarrier.mallocStack(1, stack)
+                                                                                 .sType(VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER)
+                                                                                 .pNext(VK_NULL_HANDLE)
+                                                                                 .srcAccessMask(0)
+                                                                                 .dstAccessMask(VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT)
+                                                                                 .oldLayout(VK_IMAGE_LAYOUT_UNDEFINED)
+                                                                                 .newLayout(VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
+                                                                                 .srcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+                                                                                 .dstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+                                                                                 .image(depthImageHandle)
+                                                                                 .subresourceRange(subresourceRange);
+            
+            vkCmdPipelineBarrier(buffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, null, null, imageMemoryBarrier);
+            EngineUtils.checkError(vkEndCommandBuffer(buffer));
+            
+            VkSubmitInfo submitInfo = VkSubmitInfo.mallocStack(stack)
+                                                  .sType(VK_STRUCTURE_TYPE_SUBMIT_INFO)
+                                                  .pNext(VK_NULL_HANDLE)
+                                                  .waitSemaphoreCount(0)
+                                                  .pWaitSemaphores(null)
+                                                  .pWaitDstStageMask(stack.ints(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT))
+                                                  .pCommandBuffers(stack.pointers(buffer))
+                                                  .pSignalSemaphores(null);
+            
+            EngineUtils.checkError(vkQueueSubmit(renderQueue, submitInfo, VK_NULL_HANDLE));
+            
+            // Set depth image view
+            
+            
+            VkComponentMapping componentMapping = VkComponentMapping.mallocStack(stack)
+                                                                    .r(VK_COMPONENT_SWIZZLE_IDENTITY)
+                                                                    .g(VK_COMPONENT_SWIZZLE_IDENTITY)
+                                                                    .b(VK_COMPONENT_SWIZZLE_IDENTITY)
+                                                                    .a(VK_COMPONENT_SWIZZLE_IDENTITY);
+            
+            
+            VkImageViewCreateInfo imageViewCreateInfo = VkImageViewCreateInfo.mallocStack(stack)
+                                                                             .sType(VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO)
+                                                                             .pNext(VK_NULL_HANDLE)
+                                                                             .flags(0)
+                                                                             .image(depthImageHandle)
+                                                                             .viewType(VK_IMAGE_VIEW_TYPE_2D)
+                                                                             .format(createInfo.format())
+                                                                             .components(componentMapping)
+                                                                             .subresourceRange(subresourceRange);
+            
+            EngineUtils.checkError(vkCreateImageView(device, imageViewCreateInfo, null, handleHolder));
+            depthImageviewHandle = handleHolder.get(0);
         }
     }
     
