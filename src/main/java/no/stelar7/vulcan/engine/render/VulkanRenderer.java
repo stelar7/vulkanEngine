@@ -110,7 +110,7 @@ public class VulkanRenderer
             instanceExt.flip();
             
             // Create instance
-            getInstancecLayerProperties();
+            printInstancecLayerProperties();
             createVkInstance(instanceExt, validationLayers);
             
             // Create debug
@@ -118,9 +118,9 @@ public class VulkanRenderer
             createVkDebug(debugFlags);
             
             // Create physical device
-            createPhysicalDevice(instance);
-            getPhysicalDeviceProperties(physicalDevice);
-            getPhysicalDeviceMemoryProperties(physicalDevice);
+            getFirstPhysicalDevice(instance);
+            printPhysicalDeviceProperties(physicalDevice);
+            printPhysicalDeviceMemoryProperties(physicalDevice);
             
             if (!supportsSwapchain(physicalDevice))
             {
@@ -141,51 +141,44 @@ public class VulkanRenderer
                 throw new RuntimeException("Physical device does not support present queue");
             }
             
-            getDeviceLayerProperties(physicalDevice);
-            device = createDevice(physicalDevice, graphicsQueueIndex, validationLayers, deviceExt);
-            queue = getQueue(device, graphicsQueueIndex, 0);
+            printDeviceLayerProperties(physicalDevice);
+            createDevice(physicalDevice, validationLayers, deviceExt);
+            createQueue(device, graphicsQueueIndex);
             
             window.getSurfaceFormat(physicalDevice);
-            window.createSwapchain(physicalDevice, device);
-            window.createSwapchainImageViews(device);
             window.createCommandpool(device, presentQueueIndex);
             window.createCommandBuffers(device);
-            window.createDepthImage(device, gpuMemory, queue);
-            window.createDescriptorSetPool(device);
             window.createRenderPass(device);
-            window.createFramebuffers(device);
-            window.createShaders(device);
-            window.createPipelineLayout(device);
+            
+            window.createDescriptorSetPool(device);
             window.createDescriptorSet(device);
-            window.createPipeline(device, gpuProperties.limits());
-            window.createSemaphores(device);
+            window.createDescriptorSetLayout(device);
+            
+            window.createPipeline(device);
         }
     }
     
     
-    private VkQueue getQueue(VkDevice device, int queueFamilyIndex, int index)
+    private void createQueue(VkDevice device, int queueFamilyIndex)
     {
         try (MemoryStack stack = MemoryStack.stackPush())
         {
             PointerBuffer pointer = stack.mallocPointer(1);
-            vkGetDeviceQueue(device, queueFamilyIndex, index, pointer);
+            vkGetDeviceQueue(device, queueFamilyIndex, 0, pointer);
             queue = new VkQueue(pointer.get(0), device);
-            
-            return queue;
         }
     }
     
-    private VkDevice createDevice(VkPhysicalDevice physicalDevice, int queueFamiliyIndex, PointerBuffer validationLayers, PointerBuffer deviceExt)
+    private void createDevice(VkPhysicalDevice physicalDevice, PointerBuffer validationLayers, PointerBuffer deviceExt)
     {
         try (MemoryStack stack = MemoryStack.stackPush())
         {
             vkGetPhysicalDeviceFeatures(physicalDevice, gpuFeatures);
-            
-            return createDevice(physicalDevice, gpuFeatures, queueFamiliyIndex, validationLayers, deviceExt);
+            createDevice(physicalDevice, gpuFeatures, validationLayers, deviceExt);
         }
     }
     
-    private VkDevice createDevice(VkPhysicalDevice physicalDevice, VkPhysicalDeviceFeatures features, int graphicsQueueIndex, PointerBuffer validationLayers, PointerBuffer deviceExt)
+    private void createDevice(VkPhysicalDevice physicalDevice, VkPhysicalDeviceFeatures features, PointerBuffer validationLayers, PointerBuffer deviceExt)
     {
         try (MemoryStack stack = MemoryStack.stackPush())
         {
@@ -210,8 +203,6 @@ public class VulkanRenderer
             
             EngineUtils.checkError(vkCreateDevice(physicalDevice, deviceCreateInfo, null, deviceBuffer));
             device = new VkDevice(deviceBuffer.get(0), physicalDevice, deviceCreateInfo);
-            
-            return device;
         }
     }
     
@@ -260,7 +251,7 @@ public class VulkanRenderer
         }
     }
     
-    private VkPhysicalDeviceMemoryProperties getPhysicalDeviceMemoryProperties(VkPhysicalDevice physicalDevice)
+    private void printPhysicalDeviceMemoryProperties(VkPhysicalDevice physicalDevice)
     {
         vkGetPhysicalDeviceMemoryProperties(physicalDevice, gpuMemory);
         
@@ -269,10 +260,9 @@ public class VulkanRenderer
         System.out.println("Host Memory: " + gpuMemory.memoryHeaps(1).size() / 1_000_000_000f + "GB");
         System.out.println();
         
-        return gpuMemory;
     }
     
-    private PointerBuffer getInstancecLayerProperties()
+    private void printInstancecLayerProperties()
     {
         try (MemoryStack stack = MemoryStack.stackPush())
         {
@@ -281,21 +271,18 @@ public class VulkanRenderer
             VkLayerProperties.Buffer layerProperties = VkLayerProperties.mallocStack(propertyCount.get(0), stack);
             vkEnumerateInstanceLayerProperties(propertyCount, layerProperties);
             
-            PointerBuffer pointers = stack.mallocPointer(layerProperties.capacity());
             System.out.println("Instance Layers:");
             for (int i = 0; i < layerProperties.capacity(); i++)
             {
                 VkLayerProperties currentLayer = layerProperties.get(i);
-                pointers.put(i, currentLayer);
                 System.out.format("%-40s \t | \t %s%n", currentLayer.layerNameString(), currentLayer.descriptionString());
             }
             System.out.println();
             
-            return pointers;
         }
     }
     
-    private PointerBuffer getDeviceLayerProperties(VkPhysicalDevice physicalDevice)
+    private void printDeviceLayerProperties(VkPhysicalDevice physicalDevice)
     {
         
         try (MemoryStack stack = MemoryStack.stackPush())
@@ -305,17 +292,13 @@ public class VulkanRenderer
             VkLayerProperties.Buffer layerProperties = VkLayerProperties.mallocStack(propertyCount.get(0), stack);
             vkEnumerateDeviceLayerProperties(physicalDevice, propertyCount, layerProperties);
             
-            PointerBuffer pointers = stack.mallocPointer(layerProperties.capacity());
             System.out.println("Device Layers:");
             for (int i = 0; i < layerProperties.capacity(); i++)
             {
                 VkLayerProperties currentLayer = layerProperties.get(i);
-                pointers.put(i, currentLayer);
                 System.out.format("%-40s \t | \t %s%n", currentLayer.layerNameString(), currentLayer.descriptionString());
             }
             System.out.println();
-            
-            return pointers;
         }
     }
     
@@ -351,7 +334,7 @@ public class VulkanRenderer
         }
     }
     
-    private VkPhysicalDeviceProperties getPhysicalDeviceProperties(VkPhysicalDevice physicalDevice)
+    private void printPhysicalDeviceProperties(VkPhysicalDevice physicalDevice)
     {
         vkGetPhysicalDeviceProperties(physicalDevice, gpuProperties);
         
@@ -363,8 +346,6 @@ public class VulkanRenderer
         System.out.println("Device ID: " + gpuProperties.deviceID());
         System.out.println("Device Name: " + gpuProperties.deviceNameString());
         System.out.println();
-        
-        return gpuProperties;
     }
     
     
@@ -418,12 +399,12 @@ public class VulkanRenderer
             throw new RuntimeException("Failed to initGLFW GLFW");
         }
         
-        GLFWErrorCallback.createPrint(System.err).set();
-        
         if (!glfwVulkanSupported())
         {
             throw new RuntimeException("Vulkan not supported! (Make sure you are using a GTX600/Radeon HD77xx or newer, and have up-to-date drivers)");
         }
+        
+        GLFWErrorCallback.createPrint(System.err).set();
         
     }
     
@@ -559,16 +540,16 @@ public class VulkanRenderer
     }
     
     
-    private void createPhysicalDevice(VkInstance instance)
+    private void getFirstPhysicalDevice(VkInstance instance)
     {
         try (MemoryStack stack = MemoryStack.stackPush())
         {
-            IntBuffer deviceBuffer = stack.mallocInt(1);
-            vkEnumeratePhysicalDevices(instance, deviceBuffer, null);
-            if (deviceBuffer.get(0) > 0)
+            IntBuffer countBuffer = stack.mallocInt(1);
+            EngineUtils.checkError(vkEnumeratePhysicalDevices(instance, countBuffer, null));
+            if (countBuffer.get(0) > 0)
             {
-                PointerBuffer gpuHandles = stack.mallocPointer(deviceBuffer.get(0));
-                vkEnumeratePhysicalDevices(instance, deviceBuffer, gpuHandles);
+                PointerBuffer gpuHandles = stack.mallocPointer(countBuffer.get(0));
+                EngineUtils.checkError(vkEnumeratePhysicalDevices(instance, countBuffer, gpuHandles));
                 
                 
                 // Only use the first GPU

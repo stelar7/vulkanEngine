@@ -5,23 +5,34 @@ import org.lwjgl.vulkan.*;
 public class ColorFormatContainer
 {
     
-    private int format;
+    private int colorFormat;
     private int colorSpace;
+    private int depthFormat;
     
     public void set(VkSurfaceFormatKHR surface)
     {
-        format = surface.format();
+        colorFormat = surface.format();
         colorSpace = surface.colorSpace();
     }
     
-    public int getFormat()
+    public int getDepthFormat()
     {
-        return format;
+        return depthFormat;
     }
     
-    public void setFormat(int format)
+    public void setDepthFormat(int depthFormat)
     {
-        this.format = format;
+        this.depthFormat = depthFormat;
+    }
+    
+    public int getColorFormat()
+    {
+        return colorFormat;
+    }
+    
+    public void setColorFormat(int colorFormat)
+    {
+        this.colorFormat = colorFormat;
     }
     
     public void setColorSpace(int colorSpace)
