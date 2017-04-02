@@ -1,9 +1,12 @@
-package no.stelar7.vulcan.engine;
+package no.stelar7.vulkan.engine;
 
+import org.lwjgl.*;
 import org.lwjgl.vulkan.*;
 
 import java.io.*;
-import java.nio.FloatBuffer;
+import java.net.URL;
+import java.nio.*;
+import java.nio.channels.*;
 
 import static org.lwjgl.vulkan.EXTDebugReport.*;
 import static org.lwjgl.vulkan.KHRDisplaySwapchain.*;
@@ -157,7 +160,6 @@ public final class EngineUtils
     {
         if (status != VK_SUCCESS)
         {
-            // TODO: write error to file?
             throw new RuntimeException(EngineUtils.vkErrorToString(status));
         }
     }
@@ -196,23 +198,49 @@ public final class EngineUtils
         return "UNKNOWN " + colorspace;
     }
     
-    public static byte[] readFileToArray(String filename)
+    public static ByteBuffer resourceToByteBuffer(String resource)
     {
-        ByteArrayOutputStream output = new ByteArrayOutputStream();
-        try (InputStream is = EngineUtils.class.getResourceAsStream(filename))
+        ByteBuffer buffer;
+        URL        url  = Thread.currentThread().getContextClassLoader().getResource(resource);
+        File       file = new File(url.getFile());
+        if (file.isFile())
         {
-            int    n;
-            byte[] b = new byte[4096];
-            while ((n = is.read(b)) != -1)
+            try (FileInputStream fis = new FileInputStream(file); FileChannel fc = fis.getChannel())
             {
-                output.write(b, 0, n);
+                buffer = fc.map(FileChannel.MapMode.READ_ONLY, 0, fc.size());
+                return buffer;
+            } catch (IOException e)
+            {
+                e.printStackTrace();
             }
-            return output.toByteArray();
-        } catch (IOException e)
+        } else
         {
-            e.printStackTrace();
-            return null;
+            buffer = BufferUtils.createByteBuffer(1024);
+            try (InputStream source = url.openStream(); ReadableByteChannel rbc = Channels.newChannel(source))
+            {
+                while (rbc.read(buffer) != -1)
+                {
+                    if (buffer.remaining() == 0)
+                    {
+                        buffer = resizeBuffer(buffer, buffer.capacity() * 2);
+                    }
+                    buffer.flip();
+                }
+                return buffer;
+            } catch (IOException e)
+            {
+                e.printStackTrace();
+            }
         }
+        return null;
+    }
+    
+    private static ByteBuffer resizeBuffer(ByteBuffer buffer, int newCapacity)
+    {
+        ByteBuffer newBuffer = BufferUtils.createByteBuffer(newCapacity);
+        buffer.flip();
+        newBuffer.put(buffer);
+        return newBuffer;
     }
     
     public static void printBuffer(FloatBuffer data)

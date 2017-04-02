@@ -98,7 +98,7 @@
                     </descriptorRefs>
                     <archive>
                         <manifest>
-                            <mainClass>no.stelar7.vulcan.engine.MainClass</mainClass>
+                            <mainClass>no.stelar7.vulkan.engine.MainClass</mainClass>
                         </manifest>
                     </archive>
                 </configuration>

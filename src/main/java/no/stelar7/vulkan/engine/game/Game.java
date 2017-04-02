@@ -1,10 +1,14 @@
-package no.stelar7.vulcan.engine.game;
+package no.stelar7.vulkan.engine.game;
 
-import no.stelar7.vulcan.engine.render.VulkanRenderer;
+
+import no.stelar7.vulkan.engine.renderer.VulkanRenderer;
+
+import java.util.*;
 
 public abstract class Game
 {
-    protected VulkanRenderer renderer;
+    protected final List<GameObject> gameObjects = new ArrayList<>();
+    protected final VulkanRenderer renderer;
     
     private boolean initOk;
     
@@ -15,6 +19,9 @@ public abstract class Game
     
     public abstract void update();
     
+    /**
+     * Not used, add to gameObjects list to render.
+     */
     public abstract void render();
     
     public abstract void delete();
@@ -30,5 +37,10 @@ public abstract class Game
     public boolean isInit()
     {
         return initOk;
+    }
+    
+    public List<GameObject> getGameObjects()
+    {
+        return gameObjects;
     }
 }
