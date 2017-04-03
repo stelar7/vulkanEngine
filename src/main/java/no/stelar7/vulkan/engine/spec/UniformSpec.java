@@ -10,7 +10,7 @@ public final class UniformSpec
         // Hide constructor
     }
     
-    static final class SizeMapping
+    public static final class SizeMapping
     {
         
         private SizeMapping()
@@ -18,19 +18,19 @@ public final class UniformSpec
             // Hide constructor
         }
         
-        public static int getMat4Size()
+        public static int getMat4SizeInBytes()
         {
-            return 16;
+            return 16 * Float.BYTES;
         }
         
-        public static int getVec3Size()
+        public static int getVec3SizeInBytes()
         {
-            return 3;
+            return 3 * Float.BYTES;
         }
         
-        public static int getVec2Size()
+        public static int getVec2SizeInBytes()
         {
-            return 2;
+            return 2 * Float.BYTES;
         }
     }
     
@@ -44,11 +44,9 @@ public final class UniformSpec
         int size = 0;
         
         // MVC
-        size += SizeMapping.getMat4Size();
+        size += SizeMapping.getMat4SizeInBytes();
         
         
-        // IN BYTES
-        size *= Float.BYTES;
         return size;
     }
 }

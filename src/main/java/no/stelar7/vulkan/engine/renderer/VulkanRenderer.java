@@ -3,6 +3,7 @@ package no.stelar7.vulkan.engine.renderer;
 import no.stelar7.vulkan.engine.EngineUtils;
 import no.stelar7.vulkan.engine.game.*;
 import no.stelar7.vulkan.engine.spec.*;
+import org.joml.Matrix4f;
 import org.lwjgl.*;
 import org.lwjgl.glfw.*;
 import org.lwjgl.system.*;
@@ -215,9 +216,26 @@ public class VulkanRenderer
         glfwShowWindow(windowHandle);
     }
     
-    public void swapStagedBuffer(StagedBuffer buffer)
+    public void copyFromStagedBuffer(StagedBuffer buffer)
     {
         
+        VkCommandBufferBeginInfo beginInfo = VkCommandBufferBeginInfo.calloc()
+                                                                     .sType(VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO)
+                                                                     .flags(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
+        
+        EngineUtils.checkError(vkBeginCommandBuffer(setupCommandBuffer, beginInfo));
+        beginInfo.free();
+        
+        VkBufferCopy.Buffer bufferCopy = VkBufferCopy.calloc(1)
+                                                     .srcOffset(buffer.getStaged().getOffset())
+                                                     .dstOffset(buffer.getUsed().getOffset())
+                                                     .size(buffer.getUsed().getSizeInBytes());
+        
+        vkCmdCopyBuffer(setupCommandBuffer, buffer.getStaged().getBuffer(), buffer.getUsed().getBuffer(), bufferCopy);
+        EngineUtils.checkError(vkEndCommandBuffer(setupCommandBuffer));
+        
+        submitCommandBuffer(deviceQueue, setupCommandBuffer);
+        vkQueueWaitIdle(deviceQueue);
     }
     
     public Buffer createBuffer(DeviceFamily deviceFamily, int size, int usage, int flags)
@@ -910,6 +928,16 @@ public class VulkanRenderer
         Buffer staged = createBuffer(deviceFamily, UniformSpec.getSizeInBytes(), VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
         Buffer used   = createBuffer(deviceFamily, UniformSpec.getSizeInBytes(), VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
         
+        PointerBuffer stagedPointer = memAllocPointer(1);
+        EngineUtils.checkError(vkMapMemory(deviceFamily.getDevice(), staged.getMemory(), staged.getOffset(), staged.getSizeInBytes(), 0, stagedPointer));
+        long pointer = stagedPointer.get(0);
+        
+        Matrix4f   uboData      = new Matrix4f().identity();
+        ByteBuffer matrixBuffer = memByteBuffer(pointer, UniformSpec.getSizeInBytes());
+        uboData.get(matrixBuffer);
+        
+        vkUnmapMemory(deviceFamily.getDevice(), staged.getMemory());
+        
         return new StagedBuffer(staged, used);
     }
     
@@ -1416,6 +1444,9 @@ public class VulkanRenderer
                 loops++;
                 ups++;
                 timer += skipInterval;
+                
+                copyFromStagedBuffer(uniformBuffer);
+                
             }
             
             if (shouldRecreate)
@@ -1428,7 +1459,7 @@ public class VulkanRenderer
             
             render();
             fps++;
-            
+    
             EngineUtils.checkError(vkAcquireNextImageKHR(deviceFamily.getDevice(), swapchain.getHandle(), Long.MAX_VALUE, imageSemaphore.get(0), VK_NULL_HANDLE, imageIndex));
             int index = imageIndex.get(0);
             
