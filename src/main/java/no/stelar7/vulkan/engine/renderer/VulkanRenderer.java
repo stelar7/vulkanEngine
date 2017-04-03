@@ -51,7 +51,7 @@ public class VulkanRenderer
     private DeviceFamily        deviceFamily;
     private ColorAndDepthFormat colorAndDepthFormat;
     private Pipeline            pipeline;
-    private UniformBuffer       uniformBuffer;
+    private StagedBuffer        uniformBuffer;
     
     private Swapchain         swapchain;
     private long[]            framebuffers;
@@ -215,6 +215,52 @@ public class VulkanRenderer
         glfwShowWindow(windowHandle);
     }
     
+    public void swapStagedBuffer(StagedBuffer buffer)
+    {
+        
+    }
+    
+    public Buffer createBuffer(DeviceFamily deviceFamily, int size, int usage, int flags)
+    {
+        Buffer buffer = new Buffer();
+        buffer.setSizeInBytes(size);
+        buffer.setOffset(0);
+        
+        LongBuffer handleHolder = memAllocLong(1);
+        VkBufferCreateInfo bufferCreateInfo = VkBufferCreateInfo.calloc()
+                                                                .sType(VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO)
+                                                                .sharingMode(VK_SHARING_MODE_EXCLUSIVE)
+                                                                .size(buffer.getSizeInBytes())
+                                                                .usage(usage);
+        
+        
+        EngineUtils.checkError(vkCreateBuffer(deviceFamily.getDevice(), bufferCreateInfo, null, handleHolder));
+        buffer.setBuffer(handleHolder.get(0));
+        bufferCreateInfo.free();
+        
+        
+        VkMemoryRequirements requirements = VkMemoryRequirements.calloc();
+        vkGetBufferMemoryRequirements(deviceFamily.getDevice(), buffer.getBuffer(), requirements);
+        long allocationSize = requirements.size();
+        int  index          = EngineUtils.findMemoryTypeIndex(deviceFamily.getMemoryProperties(), requirements, flags);
+        requirements.free();
+        
+        
+        VkMemoryAllocateInfo allocateInfo = VkMemoryAllocateInfo.calloc()
+                                                                .sType(VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO)
+                                                                .allocationSize(allocationSize)
+                                                                .memoryTypeIndex(index);
+        
+        EngineUtils.checkError(vkAllocateMemory(deviceFamily.getDevice(), allocateInfo, null, handleHolder));
+        buffer.setMemory(handleHolder.get(0));
+        EngineUtils.checkError(vkBindBufferMemory(deviceFamily.getDevice(), buffer.getBuffer(), buffer.getMemory(), buffer.getOffset()));
+        
+        allocateInfo.free();
+        memFree(handleHolder);
+        
+        return buffer;
+    }
+    
     
     private void postPresentBarrier(long image, VkCommandBuffer buffer, VkQueue queue)
     {
@@ -375,7 +421,7 @@ public class VulkanRenderer
             {
                 vertexHolder.put(0, obj.getModel().getVertexBuffer().getBuffer());
                 vkCmdBindVertexBuffers(renderBuffer, 0, vertexHolder, offsetHolder);
-                vkCmdDraw(renderBuffer, obj.getModel().getVertexBuffer().getSize(), 1, 0, 0);
+                vkCmdDraw(renderBuffer, obj.getModel().getVertexBuffer().getSizeInBytes(), 1, 0, 0);
             }
             
             vkCmdEndRenderPass(renderBuffer);
@@ -823,7 +869,7 @@ public class VulkanRenderer
         return shaderStage;
     }
     
-    private long createDescriptorSet(VkDevice device, long descriptorPool, long descriptorSetLayout, UniformBuffer ubo)
+    private long createDescriptorSet(VkDevice device, long descriptorPool, long descriptorSetLayout, StagedBuffer ubo)
     {
         LongBuffer setLayout = memAllocLong(1).put(0, descriptorSetLayout);
         VkDescriptorSetAllocateInfo allocateInfo = VkDescriptorSetAllocateInfo.calloc()
@@ -840,9 +886,9 @@ public class VulkanRenderer
         memFree(handleHolder);
         
         VkDescriptorBufferInfo.Buffer descriptor = VkDescriptorBufferInfo.calloc(1)
-                                                                         .buffer(ubo.getBuffer())
-                                                                         .range(ubo.getRange())
-                                                                         .offset(ubo.getOffset());
+                                                                         .buffer(ubo.getUsed().getBuffer())
+                                                                         .range(ubo.getUsed().getSizeInBytes())
+                                                                         .offset(ubo.getUsed().getOffset());
         
         VkWriteDescriptorSet.Buffer writeDescriptor = VkWriteDescriptorSet.calloc(1)
                                                                           .sType(VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET)
@@ -859,42 +905,12 @@ public class VulkanRenderer
         return setHandle;
     }
     
-    private UniformBuffer createUniformBuffer(DeviceFamily deviceFamily)
+    private StagedBuffer createUniformBuffer(DeviceFamily deviceFamily)
     {
-        UniformBuffer ubo = new UniformBuffer();
-        ubo.setRange(UniformSpec.getSizeInBytes());
-        ubo.setOffset(0);
+        Buffer staged = createBuffer(deviceFamily, UniformSpec.getSizeInBytes(), VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+        Buffer used   = createBuffer(deviceFamily, UniformSpec.getSizeInBytes(), VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
         
-        LongBuffer handleHolder = memAllocLong(1);
-        VkBufferCreateInfo bufferCreateInfo = VkBufferCreateInfo.calloc()
-                                                                .sType(VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO)
-                                                                .size(UniformSpec.getSizeInBytes())
-                                                                .usage(VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
-        
-        EngineUtils.checkError(vkCreateBuffer(deviceFamily.getDevice(), bufferCreateInfo, null, handleHolder));
-        ubo.setBuffer(handleHolder.get(0));
-        bufferCreateInfo.free();
-        
-        
-        VkMemoryRequirements requirements = VkMemoryRequirements.calloc();
-        vkGetBufferMemoryRequirements(deviceFamily.getDevice(), ubo.getBuffer(), requirements);
-        long size  = requirements.size();
-        int  index = EngineUtils.findMemoryTypeIndex(deviceFamily.getMemoryProperties(), requirements, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
-        requirements.free();
-        
-        VkMemoryAllocateInfo allocateInfo = VkMemoryAllocateInfo.calloc()
-                                                                .sType(VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO)
-                                                                .allocationSize(size)
-                                                                .memoryTypeIndex(index);
-        
-        EngineUtils.checkError(vkAllocateMemory(deviceFamily.getDevice(), allocateInfo, null, handleHolder));
-        ubo.setMemory(handleHolder.get(0));
-        allocateInfo.free();
-        
-        EngineUtils.checkError(vkBindBufferMemory(deviceFamily.getDevice(), ubo.getBuffer(), ubo.getMemory(), 0));
-        memFree(handleHolder);
-        
-        return ubo;
+        return new StagedBuffer(staged, used);
     }
     
     
@@ -1409,7 +1425,7 @@ public class VulkanRenderer
                     recreateSwapchain();
                 }
             }
-    
+            
             render();
             fps++;
             

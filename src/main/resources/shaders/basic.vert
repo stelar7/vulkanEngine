@@ -10,6 +10,11 @@ out gl_PerVertex
     vec4 gl_Position;
 };
 
+layout(binding = 0) uniform UniformBufferObject
+{
+    mat4 mvc = mat4(1);
+} ubo;
+
 void main()
 {
     outColor = inColor;

@@ -4,7 +4,7 @@ public class VertexBuffer
 {
     private long buffer;
     private long memory;
-    private int  size;
+    private int  sizeInBytes;
     
     public long getMemory()
     {
@@ -26,13 +26,13 @@ public class VertexBuffer
         this.buffer = buffer;
     }
     
-    public void setSize(int size)
+    public void setSizeInBytes(int sizeInBytes)
     {
-        this.size = size;
+        this.sizeInBytes = sizeInBytes;
     }
     
-    public int getSize()
+    public int getSizeInBytes()
     {
-        return size;
+        return sizeInBytes;
     }
 }

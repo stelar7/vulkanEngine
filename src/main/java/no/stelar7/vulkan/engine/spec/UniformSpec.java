@@ -39,7 +39,7 @@ public final class UniformSpec
     private static final Matrix4f mvc = null;
     // UBO Elements end
     
-    public static long getSizeInBytes()
+    public static int getSizeInBytes()
     {
         int size = 0;
         

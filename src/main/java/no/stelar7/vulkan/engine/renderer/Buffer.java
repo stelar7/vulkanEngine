@@ -4,12 +4,13 @@ import org.lwjgl.vulkan.*;
 
 import static org.lwjgl.vulkan.VK10.*;
 
-public class UniformBuffer
+public class Buffer
 {
     private long memory;
     private long buffer;
+    
     private long offset;
-    private long range;
+    private long sizeInBytes;
     
     public long getMemory()
     {
@@ -31,6 +32,7 @@ public class UniformBuffer
         this.buffer = buffer;
     }
     
+    
     public long getOffset()
     {
         return offset;
@@ -41,14 +43,14 @@ public class UniformBuffer
         this.offset = offset;
     }
     
-    public long getRange()
+    public long getSizeInBytes()
     {
-        return range;
+        return sizeInBytes;
     }
     
-    public void setRange(long range)
+    public void setSizeInBytes(long sizeInBytes)
     {
-        this.range = range;
+        this.sizeInBytes = sizeInBytes;
     }
     
     
