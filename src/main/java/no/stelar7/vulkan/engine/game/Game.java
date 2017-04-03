@@ -20,7 +20,7 @@ public abstract class Game
     public abstract void update();
     
     /**
-     * Not used, add to gameObjects list to render.
+     * Add objects to gameObjects to render them... for now..
      */
     public abstract void render();
     
@@ -41,6 +41,6 @@ public abstract class Game
     
     public List<GameObject> getGameObjects()
     {
-        return gameObjects;
+        return Collections.unmodifiableList(gameObjects);
     }
 }

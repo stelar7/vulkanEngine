@@ -1409,6 +1409,9 @@ public class VulkanRenderer
                     recreateSwapchain();
                 }
             }
+    
+            render();
+            fps++;
             
             EngineUtils.checkError(vkAcquireNextImageKHR(deviceFamily.getDevice(), swapchain.getHandle(), Long.MAX_VALUE, imageSemaphore.get(0), VK_NULL_HANDLE, imageIndex));
             int index = imageIndex.get(0);
@@ -1422,9 +1425,6 @@ public class VulkanRenderer
             vkQueueWaitIdle(deviceQueue);
             
             postPresentBarrier(swapchain.getImage(index), postPresentCommandBuffer, deviceQueue);
-            
-            render();
-            fps++;
             
             synchronized (lock)
             {
