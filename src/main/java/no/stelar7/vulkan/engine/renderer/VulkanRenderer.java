@@ -1,7 +1,9 @@
 package no.stelar7.vulkan.engine.renderer;
 
 import no.stelar7.vulkan.engine.EngineUtils;
+import no.stelar7.vulkan.engine.buffer.*;
 import no.stelar7.vulkan.engine.game.*;
+import no.stelar7.vulkan.engine.memory.*;
 import no.stelar7.vulkan.engine.memory.MemoryAllocator;
 import no.stelar7.vulkan.engine.spec.*;
 import org.joml.Matrix4f;
@@ -215,7 +217,7 @@ public class VulkanRenderer
         
         imageAcquredSemaphore = createSemaphore(deviceFamily.getDevice());
         renderCompleteSemaphore = createSemaphore(deviceFamily.getDevice());
-    
+        
         
         glfwShowWindow(windowHandle);
     }
@@ -231,54 +233,73 @@ public class VulkanRenderer
         beginInfo.free();
         
         VkBufferCopy.Buffer bufferCopy = VkBufferCopy.calloc(1)
-                                                     .srcOffset(buffer.getStaged().getOffset())
-                                                     .dstOffset(buffer.getUsed().getOffset())
-                                                     .size(buffer.getUsed().getSizeInBytes());
+                                                     .srcOffset(buffer.getStaged().getMemoryBlock().getOffset())
+                                                     .dstOffset(buffer.getUsed().getMemoryBlock().getOffset())
+                                                     .size(buffer.getUsed().getMemoryBlock().getSize());
         
-        vkCmdCopyBuffer(setupCommandBuffer, buffer.getStaged().getBuffer(), buffer.getUsed().getBuffer(), bufferCopy);
+        vkCmdCopyBuffer(setupCommandBuffer, buffer.getStaged().getBufferHandle(), buffer.getUsed().getBufferHandle(), bufferCopy);
         EngineUtils.checkError(vkEndCommandBuffer(setupCommandBuffer));
         
         submitCommandBuffer(deviceQueue, setupCommandBuffer);
         vkQueueWaitIdle(deviceQueue);
     }
     
-    public Buffer createBuffer(DeviceFamily deviceFamily, int size, int usage, int flags)
+    public no.stelar7.vulkan.engine.buffer.Buffer createBuffer(DeviceFamily deviceFamily, int size, int usage, int properties, int bufferFlags)
     {
-        Buffer buffer = new Buffer();
-        buffer.setSizeInBytes(size);
-        buffer.setOffset(0);
+        no.stelar7.vulkan.engine.buffer.Buffer buffer = new no.stelar7.vulkan.engine.buffer.Buffer();
+        buffer.setSize(size);
         
         LongBuffer handleHolder = memAllocLong(1);
         VkBufferCreateInfo bufferCreateInfo = VkBufferCreateInfo.calloc()
+                                                                .flags(bufferFlags)
                                                                 .sType(VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO)
                                                                 .sharingMode(VK_SHARING_MODE_EXCLUSIVE)
-                                                                .size(buffer.getSizeInBytes())
+                                                                .size(size)
                                                                 .usage(usage);
         
         
         EngineUtils.checkError(vkCreateBuffer(deviceFamily.getDevice(), bufferCreateInfo, null, handleHolder));
-        buffer.setBuffer(handleHolder.get(0));
-        bufferCreateInfo.free();
+        buffer.setBufferHandle(handleHolder.get(0));
         
+        bufferCreateInfo.free();
+        memFree(handleHolder);
         
         VkMemoryRequirements requirements = VkMemoryRequirements.calloc();
-        vkGetBufferMemoryRequirements(deviceFamily.getDevice(), buffer.getBuffer(), requirements);
+        vkGetBufferMemoryRequirements(deviceFamily.getDevice(), buffer.getBufferHandle(), requirements);
         long allocationSize = requirements.size();
-        int  index          = EngineUtils.findMemoryTypeIndex(deviceFamily.getMemoryProperties(), requirements, flags);
+        int  index          = EngineUtils.findMemoryTypeIndex(deviceFamily.getMemoryProperties(), requirements, properties);
         requirements.free();
         
         
-        VkMemoryAllocateInfo allocateInfo = VkMemoryAllocateInfo.calloc()
-                                                                .sType(VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO)
-                                                                .allocationSize(allocationSize)
-                                                                .memoryTypeIndex(index);
+        MemoryBlock block = MemoryAllocator.INSTANCE.allocate(allocationSize, index);
+        buffer.setMemoryBlock(block);
         
-        EngineUtils.checkError(vkAllocateMemory(deviceFamily.getDevice(), allocateInfo, null, handleHolder));
-        buffer.setMemory(handleHolder.get(0));
-        EngineUtils.checkError(vkBindBufferMemory(deviceFamily.getDevice(), buffer.getBuffer(), buffer.getMemory(), buffer.getOffset()));
-        
-        allocateInfo.free();
-        memFree(handleHolder);
+        if (bufferFlags != 0)
+        {
+            VkSparseMemoryBind.Buffer memoryBinds = VkSparseMemoryBind.calloc(1)
+                                                                      .memory(buffer.getMemoryBlock().getMemory())
+                                                                      .memoryOffset(buffer.getMemoryBlock().getOffset())
+                                                                      .size(buffer.getMemoryBlock().getSize())
+                                                                      .resourceOffset(0);
+            
+            VkSparseBufferMemoryBindInfo.Buffer bindInfo = VkSparseBufferMemoryBindInfo.calloc(1)
+                                                                                       .buffer(buffer.getBufferHandle())
+                                                                                       .pBinds(memoryBinds);
+            
+            VkBindSparseInfo sparseInfo = VkBindSparseInfo.calloc()
+                                                          .sType(VK_STRUCTURE_TYPE_BIND_SPARSE_INFO)
+                                                          .pBufferBinds(bindInfo);
+            
+            vkQueueBindSparse(deviceQueue, sparseInfo, VK_NULL_HANDLE);
+            
+            memoryBinds.free();
+            sparseInfo.free();
+            bindInfo.free();
+            
+        } else
+        {
+            EngineUtils.checkError(vkBindBufferMemory(deviceFamily.getDevice(), buffer.getBufferHandle(), buffer.getMemoryBlock().getMemory(), buffer.getMemoryBlock().getOffset()));
+        }
         
         return buffer;
     }
@@ -441,9 +462,9 @@ public class VulkanRenderer
             
             for (GameObject obj : gameObjects)
             {
-                vertexHolder.put(0, obj.getModel().getVertexBuffer().getBuffer());
+                vertexHolder.put(0, obj.getModel().getVertexBuffer().getUsed().getBufferHandle());
                 vkCmdBindVertexBuffers(renderBuffer, 0, vertexHolder, offsetHolder);
-                vkCmdDraw(renderBuffer, obj.getModel().getVertexBuffer().getSizeInBytes(), 1, 0, 0);
+                vkCmdDraw(renderBuffer, obj.getModel().getVertexCount(), 1, 0, 0);
             }
             
             vkCmdEndRenderPass(renderBuffer);
@@ -521,6 +542,7 @@ public class VulkanRenderer
         DepthStencil stencil = new DepthStencil();
         
         VkImageCreateInfo imageCreateInfo = VkImageCreateInfo.calloc()
+                                                             .flags(VK_IMAGE_CREATE_SPARSE_BINDING_BIT | VK_IMAGE_CREATE_SPARSE_ALIASED_BIT)
                                                              .usage(VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT)
                                                              .sType(VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO)
                                                              .tiling(VK_IMAGE_TILING_OPTIMAL)
@@ -541,20 +563,39 @@ public class VulkanRenderer
         
         VkMemoryRequirements memoryRequirements = VkMemoryRequirements.calloc();
         vkGetImageMemoryRequirements(deviceFamily.getDevice(), stencil.getImage(), memoryRequirements);
+        int  index          = EngineUtils.findMemoryTypeIndex(deviceFamily.getMemoryProperties(), memoryRequirements, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        long allocationSize = memoryRequirements.size();
+        memoryRequirements.free();
         
-        VkMemoryAllocateInfo allocateInfo = VkMemoryAllocateInfo.calloc()
-                                                                .sType(VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO)
-                                                                .allocationSize(memoryRequirements.size())
-                                                                .memoryTypeIndex(EngineUtils.findMemoryTypeIndex(deviceFamily.getMemoryProperties(), memoryRequirements, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT));
+        MemoryBlock block = MemoryAllocator.INSTANCE.allocate(allocationSize, index);
+        stencil.setMemoryBlock(block);
         
-        EngineUtils.checkError(vkAllocateMemory(deviceFamily.getDevice(), allocateInfo, null, handleHolder));
-        stencil.setMemory(handleHolder.get(0));
         
-        vkBindImageMemory(deviceFamily.getDevice(), stencil.getImage(), stencil.getMemory(), 0);
+        int mask = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
+        VkSparseMemoryBind.Buffer memoryBinds = VkSparseMemoryBind.calloc(1)
+                                                                  .memory(stencil.getMemoryBlock().getMemory())
+                                                                  .memoryOffset(stencil.getMemoryBlock().getOffset())
+                                                                  .size(stencil.getMemoryBlock().getSize())
+                                                                  .resourceOffset(0);
+        
+        VkSparseImageOpaqueMemoryBindInfo.Buffer bindInfo = VkSparseImageOpaqueMemoryBindInfo.calloc(1)
+                                                                                             .image(stencil.getImage())
+                                                                                             .pBinds(memoryBinds);
+        
+        VkBindSparseInfo sparseInfo = VkBindSparseInfo.calloc()
+                                                      .sType(VK_STRUCTURE_TYPE_BIND_SPARSE_INFO)
+                                                      .pImageOpaqueBinds(bindInfo);
+        
+        vkQueueBindSparse(deviceQueue, sparseInfo, VK_NULL_HANDLE);
+        
+        memoryBinds.free();
+        sparseInfo.free();
+        bindInfo.free();
+        
+        
+        // vkBindImageMemory(deviceFamily.getDevice(), stencil.getImage(), stencil.getMemoryBlock().getMemory(), stencil.getMemoryBlock().getOffset());
         
         int stage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
-        int mask  = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
-        
         imageBarrier(buffer, stencil.getImage(), stage, stage, mask, VK_IMAGE_LAYOUT_UNDEFINED, 0, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT);
         
         
@@ -572,11 +613,9 @@ public class VulkanRenderer
         stencil.setView(handleHolder.get(0));
         
         
-        memoryRequirements.free();
         imageCreateInfo.free();
         viewCreateInfo.free();
         memFree(handleHolder);
-        allocateInfo.free();
         
         return stencil;
     }
@@ -908,9 +947,9 @@ public class VulkanRenderer
         memFree(handleHolder);
         
         VkDescriptorBufferInfo.Buffer descriptor = VkDescriptorBufferInfo.calloc(1)
-                                                                         .buffer(ubo.getUsed().getBuffer())
-                                                                         .range(ubo.getUsed().getSizeInBytes())
-                                                                         .offset(ubo.getUsed().getOffset());
+                                                                         .buffer(ubo.getUsed().getBufferHandle())
+                                                                         .range(ubo.getUsed().getSize())
+                                                                         .offset(0);
         
         VkWriteDescriptorSet.Buffer writeDescriptor = VkWriteDescriptorSet.calloc(1)
                                                                           .sType(VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET)
@@ -927,22 +966,32 @@ public class VulkanRenderer
         return setHandle;
     }
     
+    private StagedBuffer createStagedBuffer(DeviceFamily deviceFamily, int usage)
+    {
+        no.stelar7.vulkan.engine.buffer.Buffer staged = createBuffer(deviceFamily, UniformSpec.getSizeInBytes(), VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, 0);
+        no.stelar7.vulkan.engine.buffer.Buffer used   = createBuffer(deviceFamily, UniformSpec.getSizeInBytes(), VK_BUFFER_USAGE_TRANSFER_DST_BIT | usage, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, VK_IMAGE_CREATE_SPARSE_BINDING_BIT);
+        
+        return new StagedBuffer(staged, used);
+    }
+    
     private StagedBuffer createUniformBuffer(DeviceFamily deviceFamily)
     {
-        Buffer staged = createBuffer(deviceFamily, UniformSpec.getSizeInBytes(), VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-        Buffer used   = createBuffer(deviceFamily, UniformSpec.getSizeInBytes(), VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        StagedBuffer stagedBuffer = createStagedBuffer(deviceFamily, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
+        
+        MemoryBlock stagedMemory = stagedBuffer.getStaged().getMemoryBlock();
         
         PointerBuffer stagedPointer = memAllocPointer(1);
-        EngineUtils.checkError(vkMapMemory(deviceFamily.getDevice(), staged.getMemory(), staged.getOffset(), staged.getSizeInBytes(), 0, stagedPointer));
+        EngineUtils.checkError(vkMapMemory(deviceFamily.getDevice(), stagedMemory.getMemory(), stagedMemory.getOffset(), stagedMemory.getSize(), 0, stagedPointer));
         long pointer = stagedPointer.get(0);
+        memFree(stagedPointer);
         
         Matrix4f   uboData      = new Matrix4f().identity();
         ByteBuffer matrixBuffer = memByteBuffer(pointer, UniformSpec.getSizeInBytes());
         uboData.get(matrixBuffer);
         
-        vkUnmapMemory(deviceFamily.getDevice(), staged.getMemory());
+        vkUnmapMemory(deviceFamily.getDevice(), stagedMemory.getMemory());
         
-        return new StagedBuffer(staged, used);
+        return stagedBuffer;
     }
     
     

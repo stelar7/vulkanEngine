@@ -2,7 +2,6 @@ package no.stelar7.vulkan.engine.memory;
 
 import no.stelar7.vulkan.engine.EngineUtils;
 import no.stelar7.vulkan.engine.renderer.DeviceFamily;
-import org.lwjgl.*;
 import org.lwjgl.vulkan.*;
 
 import java.nio.LongBuffer;
@@ -16,15 +15,13 @@ public class MemoryChunk
     private VkDevice device;
     
     private long memory;
+    private long size;
     private int  index;
-    private int  size;
-    
-    private long pointer;
     
     private List<MemoryBlock> blocks = new ArrayList<>();
     
     
-    public MemoryChunk(DeviceFamily deviceFamily, int memoryIndex, int size)
+    public MemoryChunk(DeviceFamily deviceFamily, int memoryIndex, long size)
     {
         
         VkMemoryAllocateInfo allocateInfo = VkMemoryAllocateInfo.calloc()
@@ -40,16 +37,9 @@ public class MemoryChunk
         this.device = deviceFamily.getDevice();
         this.index = memoryIndex;
         this.size = size;
+        
         memFree(handleHolder);
-        
-        
-        if (EngineUtils.hasFlag(deviceFamily.getMemoryProperties().memoryTypes(memoryIndex).propertyFlags(), VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT))
-        {
-            PointerBuffer pointerHolder = memAllocPointer(1);
-            vkMapMemory(deviceFamily.getDevice(), memory, 0, VK_WHOLE_SIZE, 0, pointerHolder);
-            this.pointer = pointerHolder.get(0);
-            memFree(pointerHolder);
-        }
+        allocateInfo.free();
         
         MemoryBlock block = new MemoryBlock();
         block.setMemory(memory);
@@ -70,7 +60,7 @@ public class MemoryChunk
         blocks.stream().filter(a -> a.equals(block)).findFirst().ifPresent(memoryBlock -> memoryBlock.setFree(true));
     }
     
-    public MemoryBlock allocate(int requestSize)
+    public MemoryBlock allocate(long requestSize)
     {
         if (requestSize > size)
         {
@@ -79,27 +69,43 @@ public class MemoryChunk
         
         for (int i = 0; i < blocks.size(); i++)
         {
-            if (blocks.get(i).isFree())
+            MemoryBlock currentBlock = blocks.get(i);
+            
+            
+            if (currentBlock.isFree())
             {
-                if (blocks.get(i).getSize() >= requestSize)
+                // TODO: Better defragmentation
+                if (i > 0)
                 {
-                    if (blocks.get(i).getSize() == requestSize)
+                    MemoryBlock prevBlock = blocks.get(i - 1);
+                    if (prevBlock.isFree())
                     {
-                        blocks.get(i).setFree(false);
-                        return blocks.get(i);
+                        prevBlock.setSize(prevBlock.getSize() + currentBlock.getSize());
+                        blocks.remove(currentBlock);
+                        return allocate(requestSize);
+                    }
+                }
+                
+                if (currentBlock.getSize() >= requestSize)
+                {
+                    if (currentBlock.getSize() == requestSize)
+                    {
+                        currentBlock.setFree(false);
+                        return currentBlock;
                     }
                     
+                    
                     MemoryBlock nextBlock = new MemoryBlock();
-                    nextBlock.setSize(blocks.get(i).getSize() - requestSize);
-                    nextBlock.setOffset(blocks.get(i).getOffset() + blocks.get(i).getSize());
+                    nextBlock.setSize(currentBlock.getSize() - requestSize);
+                    nextBlock.setOffset(currentBlock.getOffset() + requestSize);
                     nextBlock.setMemory(memory);
                     nextBlock.setFree(true);
                     blocks.add(nextBlock);
                     
-                    blocks.get(i).setSize(requestSize);
-                    blocks.get(i).setFree(false);
+                    currentBlock.setSize(requestSize);
+                    currentBlock.setFree(false);
                     
-                    return blocks.get(i);
+                    return currentBlock;
                 }
             }
         }
@@ -109,5 +115,10 @@ public class MemoryChunk
     public void free()
     {
         vkFreeMemory(device, memory, null);
+    }
+    
+    public boolean hasBlock(MemoryBlock block)
+    {
+        return blocks.stream().anyMatch(a -> a.equals(block));
     }
 }

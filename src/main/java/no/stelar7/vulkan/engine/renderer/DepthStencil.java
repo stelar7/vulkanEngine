@@ -1,14 +1,15 @@
 package no.stelar7.vulkan.engine.renderer;
 
+import no.stelar7.vulkan.engine.memory.*;
 import org.lwjgl.vulkan.*;
 
 import static org.lwjgl.vulkan.VK10.*;
 
 public class DepthStencil
 {
-    private long image;
-    private long memory;
-    private long view;
+    private long        image;
+    private long        view;
+    private MemoryBlock memoryBlock;
     
     public long getImage()
     {
@@ -20,14 +21,14 @@ public class DepthStencil
         this.image = image;
     }
     
-    public long getMemory()
+    public MemoryBlock getMemoryBlock()
     {
-        return memory;
+        return memoryBlock;
     }
     
-    public void setMemory(long memory)
+    public void setMemoryBlock(MemoryBlock memory)
     {
-        this.memory = memory;
+        this.memoryBlock = memory;
     }
     
     public long getView()
@@ -42,8 +43,8 @@ public class DepthStencil
     
     public void free(VkDevice device)
     {
-        vkFreeMemory(device, memory, null);
         vkDestroyImage(device, image, null);
         vkDestroyImageView(device, view, null);
+        MemoryAllocator.INSTANCE.deallocate(memoryBlock);
     }
 }

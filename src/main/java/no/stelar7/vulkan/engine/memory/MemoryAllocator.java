@@ -20,7 +20,7 @@ public class MemoryAllocator
         MemoryAllocator.INSTANCE = this;
     }
     
-    public MemoryBlock allocate(int size, int memoryIndex)
+    public MemoryBlock allocate(long size, int memoryIndex)
     {
         for (MemoryChunk chunk : chunks)
         {
@@ -38,21 +38,26 @@ public class MemoryAllocator
         return allocate(size, memoryIndex);
     }
     
+    public void deallocate(MemoryBlock block)
+    {
+        chunks.stream().filter(s -> s.hasBlock(block)).findFirst().ifPresent(c -> c.deallocate(block));
+    }
+    
     public void free()
     {
         chunks.forEach(MemoryChunk::free);
     }
     
-    private MemoryChunk allocateChunk(int size, int memoryIndex)
+    private MemoryChunk allocateChunk(long size, int memoryIndex)
     {
-        int chunkSize = (defaultChunkSize < size) ? getNextPowerOfTwo(size) : defaultChunkSize;
+        long chunkSize = (defaultChunkSize < size) ? getNextPowerOfTwo(size) : defaultChunkSize;
         return new MemoryChunk(deviceFamily, memoryIndex, chunkSize);
     }
     
     
-    private int getNextPowerOfTwo(int a)
+    private long getNextPowerOfTwo(long a)
     {
-        int n = a;
+        long n = a;
         n--;
         n = n | (n >> 1);
         n = n | (n >> 2);
@@ -62,4 +67,5 @@ public class MemoryAllocator
         n++;
         return n;
     }
+    
 }

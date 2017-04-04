@@ -1,11 +1,24 @@
 package no.stelar7.vulkan.engine.renderer;
 
+import no.stelar7.vulkan.engine.buffer.StagedBuffer;
+
 public class Model
 {
-    private VertexBuffer vertexBuffer;
+    private StagedBuffer vertexBuffer;
+    private int          vertexCount;
     
-    public VertexBuffer getVertexBuffer()
+    public StagedBuffer getVertexBuffer()
     {
         return vertexBuffer;
+    }
+    
+    public int getVertexCount()
+    {
+        return vertexCount;
+    }
+    
+    public void setVertexCount(int vertexCount)
+    {
+        this.vertexCount = vertexCount;
     }
 }
