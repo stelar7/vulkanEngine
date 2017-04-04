@@ -1,10 +1,11 @@
 package no.stelar7.vulkan.engine.renderer;
 
 import no.stelar7.vulkan.engine.EngineUtils;
+import no.stelar7.vulkan.engine.buffer.Buffer;
 import no.stelar7.vulkan.engine.buffer.*;
 import no.stelar7.vulkan.engine.game.*;
-import no.stelar7.vulkan.engine.memory.*;
 import no.stelar7.vulkan.engine.memory.MemoryAllocator;
+import no.stelar7.vulkan.engine.memory.*;
 import no.stelar7.vulkan.engine.spec.*;
 import org.joml.Matrix4f;
 import org.lwjgl.*;
@@ -244,7 +245,7 @@ public class VulkanRenderer
         vkQueueWaitIdle(deviceQueue);
     }
     
-    public no.stelar7.vulkan.engine.buffer.Buffer createBuffer(DeviceFamily deviceFamily, int size, int usage, int properties, int bufferFlags)
+    public Buffer createBuffer(DeviceFamily deviceFamily, int size, int usage, int properties, int bufferFlags)
     {
         no.stelar7.vulkan.engine.buffer.Buffer buffer = new no.stelar7.vulkan.engine.buffer.Buffer();
         buffer.setSize(size);
@@ -274,7 +275,7 @@ public class VulkanRenderer
         MemoryBlock block = MemoryAllocator.INSTANCE.allocate(allocationSize, index);
         buffer.setMemoryBlock(block);
         
-        if (bufferFlags != 0)
+        if (EngineUtils.hasFlag(bufferFlags, VK_BUFFER_CREATE_SPARSE_BINDING_BIT))
         {
             VkSparseMemoryBind.Buffer memoryBinds = VkSparseMemoryBind.calloc(1)
                                                                       .memory(buffer.getMemoryBlock().getMemory())
@@ -969,7 +970,7 @@ public class VulkanRenderer
     private StagedBuffer createStagedBuffer(DeviceFamily deviceFamily, int usage)
     {
         no.stelar7.vulkan.engine.buffer.Buffer staged = createBuffer(deviceFamily, UniformSpec.getSizeInBytes(), VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, 0);
-        no.stelar7.vulkan.engine.buffer.Buffer used   = createBuffer(deviceFamily, UniformSpec.getSizeInBytes(), VK_BUFFER_USAGE_TRANSFER_DST_BIT | usage, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, VK_IMAGE_CREATE_SPARSE_BINDING_BIT);
+        no.stelar7.vulkan.engine.buffer.Buffer used   = createBuffer(deviceFamily, UniformSpec.getSizeInBytes(), VK_BUFFER_USAGE_TRANSFER_DST_BIT | usage, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, VK_BUFFER_CREATE_SPARSE_BINDING_BIT);
         
         return new StagedBuffer(staged, used);
     }
