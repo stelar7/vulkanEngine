@@ -2,6 +2,7 @@ package no.stelar7.vulkan.engine.renderer;
 
 import no.stelar7.vulkan.engine.EngineUtils;
 import no.stelar7.vulkan.engine.game.*;
+import no.stelar7.vulkan.engine.memory.MemoryAllocator;
 import no.stelar7.vulkan.engine.spec.*;
 import org.joml.Matrix4f;
 import org.lwjgl.*;
@@ -138,6 +139,7 @@ public class VulkanRenderer
     {
         vkDeviceWaitIdle(deviceFamily.getDevice());
         
+        MemoryAllocator.INSTANCE.free();
         
         vkDestroySemaphore(deviceFamily.getDevice(), renderCompleteSemaphore, null);
         vkDestroySemaphore(deviceFamily.getDevice(), imageAcquredSemaphore, null);
@@ -191,6 +193,7 @@ public class VulkanRenderer
         debugCallback = createDebug(instance, VK_DEBUG_REPORT_ERROR_BIT_EXT | VK_DEBUG_REPORT_WARNING_BIT_EXT | VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT);
         physicalDevice = getFirstPhysicalDevice(instance);
         deviceFamily = createDeviceAndQueue(physicalDevice);
+        new MemoryAllocator(deviceFamily);
         windowHandle = createWindow(width, height, title);
         surfaceHandle = createSurface(instance, windowHandle);
         setQueuePresent(physicalDevice, surfaceHandle, deviceFamily);
@@ -212,6 +215,7 @@ public class VulkanRenderer
         
         imageAcquredSemaphore = createSemaphore(deviceFamily.getDevice());
         renderCompleteSemaphore = createSemaphore(deviceFamily.getDevice());
+    
         
         glfwShowWindow(windowHandle);
     }
@@ -1459,7 +1463,7 @@ public class VulkanRenderer
             
             render();
             fps++;
-    
+            
             EngineUtils.checkError(vkAcquireNextImageKHR(deviceFamily.getDevice(), swapchain.getHandle(), Long.MAX_VALUE, imageSemaphore.get(0), VK_NULL_HANDLE, imageIndex));
             int index = imageIndex.get(0);
             
