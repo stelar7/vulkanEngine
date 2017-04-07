@@ -1503,29 +1503,16 @@ public class VulkanRenderer
                 
             }
             
-            if (shouldRecreate)
+            synchronized (lock)
             {
-                synchronized (lock)
+                if (shouldRecreate)
                 {
                     recreateSwapchain();
                 }
             }
             
-            render();
+            render(imageSemaphore.get(0), swapchains, commandBuffers, imageIndex, submitInfo, presentInfo);
             fps++;
-            
-            EngineUtils.checkError(vkAcquireNextImageKHR(deviceFamily.getDevice(), swapchain.getHandle(), Long.MAX_VALUE, imageSemaphore.get(0), VK_NULL_HANDLE, imageIndex));
-            int index = imageIndex.get(0);
-            
-            commandBuffers.put(0, renderCommandBuffers[index]);
-            EngineUtils.checkError(vkQueueSubmit(deviceQueue, submitInfo, VK_NULL_HANDLE));
-            
-            swapchains.put(0, swapchain.getHandle());
-            EngineUtils.checkError(vkQueuePresentKHR(deviceQueue, presentInfo));
-            
-            vkQueueWaitIdle(deviceQueue);
-            
-            postPresentBarrier(swapchain.getImage(index), postPresentCommandBuffer, deviceQueue);
             
             synchronized (lock)
             {
@@ -1556,9 +1543,22 @@ public class VulkanRenderer
         game.update();
     }
     
-    private void render()
+    private void render(long imageSemaphore, LongBuffer swapchains, PointerBuffer commandBuffers, IntBuffer imageIndex, VkSubmitInfo submitInfo, VkPresentInfoKHR presentInfo)
     {
         game.render();
+        
+        EngineUtils.checkError(vkAcquireNextImageKHR(deviceFamily.getDevice(), swapchain.getHandle(), Long.MAX_VALUE, imageSemaphore, VK_NULL_HANDLE, imageIndex));
+        int index = imageIndex.get(0);
+    
+        commandBuffers.put(0, renderCommandBuffers[index]);
+        EngineUtils.checkError(vkQueueSubmit(deviceQueue, submitInfo, VK_NULL_HANDLE));
+        
+        swapchains.put(0, swapchain.getHandle());
+        EngineUtils.checkError(vkQueuePresentKHR(deviceQueue, presentInfo));
+        
+        vkQueueWaitIdle(deviceQueue);
+        
+        postPresentBarrier(swapchain.getImage(index), postPresentCommandBuffer, deviceQueue);
     }
     
     public void useGame(Game game)
