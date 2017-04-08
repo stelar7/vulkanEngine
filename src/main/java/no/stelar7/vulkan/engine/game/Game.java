@@ -1,6 +1,7 @@
 package no.stelar7.vulkan.engine.game;
 
 
+import no.stelar7.vulkan.engine.game.objects.GameObject;
 import no.stelar7.vulkan.engine.renderer.VulkanRenderer;
 
 import java.util.*;

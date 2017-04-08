@@ -37,11 +37,17 @@ public class Buffer
         vkDestroyBuffer(device, bufferHandle, null);
     }
     
+    /**
+     * Gets the size of the buffer (In bytes)
+     */
     public long getSize()
     {
         return bufferSize;
     }
     
+    /**
+     * Sets the size of the buffer (In bytes)
+     */
     public void setSize(long size)
     {
         this.bufferSize = size;

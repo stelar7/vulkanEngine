@@ -4,6 +4,7 @@ import no.stelar7.vulkan.engine.EngineUtils;
 import no.stelar7.vulkan.engine.buffer.Buffer;
 import no.stelar7.vulkan.engine.buffer.*;
 import no.stelar7.vulkan.engine.game.*;
+import no.stelar7.vulkan.engine.game.objects.GameObject;
 import no.stelar7.vulkan.engine.memory.MemoryAllocator;
 import no.stelar7.vulkan.engine.memory.*;
 import no.stelar7.vulkan.engine.spec.*;
@@ -67,6 +68,11 @@ public class VulkanRenderer
     private int height;
     
     private List<Long> shaders = new ArrayList<>();
+    
+    public DeviceFamily getDeviceFamily()
+    {
+        return deviceFamily;
+    }
     
     private static final ByteBuffer[] validationLayers = {
             memUTF8("VK_LAYER_LUNARG_standard_validation"),
@@ -142,6 +148,8 @@ public class VulkanRenderer
     {
         vkDeviceWaitIdle(deviceFamily.getDevice());
         
+        game.delete();
+        
         MemoryAllocator.INSTANCE.free();
         
         vkDestroySemaphore(deviceFamily.getDevice(), renderCompleteSemaphore, null);
@@ -207,9 +215,6 @@ public class VulkanRenderer
         deviceQueue = createDeviceQueue(deviceFamily);
         renderpassHandle = createRenderpass(deviceFamily.getDevice(), colorAndDepthFormat);
         renderCommandPoolHandle = createCommandPool(deviceFamily);
-        
-        // TODO: vertex buffer, index buffer?
-        
         uniformBuffer = createUniformBuffer(deviceFamily);
         descriptorPoolHandle = createDescriptorPool(deviceFamily.getDevice());
         descriptorSetLayout = createDescriptorSetLayout(deviceFamily.getDevice());
@@ -223,7 +228,7 @@ public class VulkanRenderer
         glfwShowWindow(windowHandle);
     }
     
-    public void copyFromStagedBuffer(StagedBuffer buffer)
+    public void swapHostToDevice(StagedBuffer buffer)
     {
         
         VkCommandBufferBeginInfo beginInfo = VkCommandBufferBeginInfo.calloc()
@@ -234,18 +239,18 @@ public class VulkanRenderer
         beginInfo.free();
         
         VkBufferCopy.Buffer bufferCopy = VkBufferCopy.calloc(1)
-                                                     .srcOffset(buffer.getStaged().getMemoryBlock().getOffset())
-                                                     .dstOffset(buffer.getUsed().getMemoryBlock().getOffset())
-                                                     .size(buffer.getUsed().getMemoryBlock().getSize());
+                                                     .srcOffset(buffer.getHostBuffer().getMemoryBlock().getOffset())
+                                                     .dstOffset(buffer.getDeviceBuffer().getMemoryBlock().getOffset())
+                                                     .size(buffer.getDeviceBuffer().getMemoryBlock().getSize());
         
-        vkCmdCopyBuffer(setupCommandBuffer, buffer.getStaged().getBufferHandle(), buffer.getUsed().getBufferHandle(), bufferCopy);
+        vkCmdCopyBuffer(setupCommandBuffer, buffer.getHostBuffer().getBufferHandle(), buffer.getDeviceBuffer().getBufferHandle(), bufferCopy);
         EngineUtils.checkError(vkEndCommandBuffer(setupCommandBuffer));
         
         submitCommandBuffer(deviceQueue, setupCommandBuffer);
         vkQueueWaitIdle(deviceQueue);
     }
     
-    public Buffer createBuffer(DeviceFamily deviceFamily, int size, int usage, int properties, int bufferFlags)
+    private Buffer createBuffer(DeviceFamily deviceFamily, int size, int usage, int properties, int bufferFlags)
     {
         no.stelar7.vulkan.engine.buffer.Buffer buffer = new no.stelar7.vulkan.engine.buffer.Buffer();
         buffer.setSize(size);
@@ -348,6 +353,23 @@ public class VulkanRenderer
     
     private void recreateSwapchain()
     {
+        
+        
+        VkSurfaceCapabilitiesKHR surfaceCapabilities = VkSurfaceCapabilitiesKHR.calloc();
+        EngineUtils.checkError(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice, surfaceHandle, surfaceCapabilities));
+        int presentMode         = getBestPresentMode(physicalDevice, surfaceHandle);
+        int swapchainImageCount = getSwapchainImageCount(surfaceCapabilities);
+        int preTransform        = getPreTransform(surfaceCapabilities);
+        adjustFramebufferSize(surfaceCapabilities, this.width, this.height);
+        surfaceCapabilities.free();
+        
+        // Window has a 0 size framebuffer, so we do not need to recreate
+        if (this.height == 0 || this.width == 0)
+        {
+            return;
+        }
+        
+        
         vkDeviceWaitIdle(deviceFamily.getDevice());
         
         VkCommandBufferBeginInfo beginInfo = VkCommandBufferBeginInfo.calloc()
@@ -362,8 +384,7 @@ public class VulkanRenderer
         {
             swapchain.free(deviceFamily.getDevice(), false);
         }
-        swapchain = createSwapchain(deviceFamily.getDevice(), physicalDevice, surfaceHandle, oldChain, setupCommandBuffer, width, height, colorAndDepthFormat);
-        
+        swapchain = createSwapchain(deviceFamily.getDevice(), swapchainImageCount, preTransform, presentMode, surfaceHandle, oldChain, setupCommandBuffer, colorAndDepthFormat);
         
         if (depthStencil != null)
         {
@@ -463,7 +484,19 @@ public class VulkanRenderer
             
             for (GameObject obj : gameObjects)
             {
-                vertexHolder.put(0, obj.getModel().getVertexBuffer().getUsed().getBufferHandle());
+                Buffer hostBuffer = obj.getModel().getVertexBuffer().getHostBuffer();
+                
+                PointerBuffer stagedPointer = memAllocPointer(1);
+                EngineUtils.checkError(vkMapMemory(deviceFamily.getDevice(), hostBuffer.getMemoryBlock().getMemory(), hostBuffer.getMemoryBlock().getOffset(), hostBuffer.getSize(), 0, stagedPointer));
+                long pointer = stagedPointer.get(0);
+                memFree(stagedPointer);
+                
+                FloatBuffer data = memFloatBuffer(pointer, obj.getModel().getVertexCount());
+                EngineUtils.printBuffer(data);
+                vkUnmapMemory(deviceFamily.getDevice(), hostBuffer.getMemoryBlock().getMemory());
+                
+                
+                vertexHolder.put(0, obj.getModel().getVertexBuffer().getDeviceBuffer().getBufferHandle());
                 vkCmdBindVertexBuffers(renderBuffer, 0, vertexHolder, offsetHolder);
                 vkCmdDraw(renderBuffer, obj.getModel().getVertexCount(), 1, 0, 0);
             }
@@ -681,6 +714,9 @@ public class VulkanRenderer
     {
         
         VkExtent2D size = surfaceCapabilities.currentExtent();
+        System.out.println(size.width());
+        System.out.println(size.height());
+        
         if (size.width() != -1 && size.height() != -1)
         {
             this.width = size.width();
@@ -690,22 +726,12 @@ public class VulkanRenderer
             this.width = newWidth;
             this.height = newHeight;
         }
-        
     }
     
     
-    private Swapchain createSwapchain(VkDevice device, VkPhysicalDevice physicalDevice, long surface, long oldChain, VkCommandBuffer buffer, int newWidth, int newHeight, ColorAndDepthFormat cad)
+    private Swapchain createSwapchain(VkDevice device, int swapchainImageCount, int preTransform, int presentMode, long surface, long oldChain, VkCommandBuffer buffer, ColorAndDepthFormat cad)
     {
         Swapchain localChain = new Swapchain();
-        
-        VkSurfaceCapabilitiesKHR surfaceCapabilities = VkSurfaceCapabilitiesKHR.calloc();
-        EngineUtils.checkError(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice, surface, surfaceCapabilities));
-        int presentMode         = getBestPresentMode(physicalDevice, surface);
-        int swapchainImageCount = getSwapchainImageCount(surfaceCapabilities);
-        int preTransform        = getPreTransform(surfaceCapabilities);
-        adjustFramebufferSize(surfaceCapabilities, newWidth, newHeight);
-        surfaceCapabilities.free();
-        
         
         VkSwapchainCreateInfoKHR swapchainCreateInfo = VkSwapchainCreateInfoKHR.calloc()
                                                                                .sType(VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR)
@@ -722,8 +748,9 @@ public class VulkanRenderer
                                                                                .surface(surface)
                                                                                .clipped(true);
         swapchainCreateInfo.imageExtent()
-                           .width(width)
-                           .height(height);
+                           .width(this.width)
+                           .height(this.height);
+        
         
         LongBuffer handleHolder = memAllocLong(1);
         EngineUtils.checkError(vkCreateSwapchainKHR(device, swapchainCreateInfo, null, handleHolder));
@@ -948,8 +975,8 @@ public class VulkanRenderer
         memFree(handleHolder);
         
         VkDescriptorBufferInfo.Buffer descriptor = VkDescriptorBufferInfo.calloc(1)
-                                                                         .buffer(ubo.getUsed().getBufferHandle())
-                                                                         .range(ubo.getUsed().getSize())
+                                                                         .buffer(ubo.getDeviceBuffer().getBufferHandle())
+                                                                         .range(ubo.getDeviceBuffer().getSize())
                                                                          .offset(0);
         
         VkWriteDescriptorSet.Buffer writeDescriptor = VkWriteDescriptorSet.calloc(1)
@@ -967,30 +994,43 @@ public class VulkanRenderer
         return setHandle;
     }
     
-    private StagedBuffer createStagedBuffer(DeviceFamily deviceFamily, int usage)
+    public StagedBuffer createStagedBuffer(DeviceFamily deviceFamily, int size, int usage)
     {
-        no.stelar7.vulkan.engine.buffer.Buffer staged = createBuffer(deviceFamily, UniformSpec.getSizeInBytes(), VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, 0);
-        no.stelar7.vulkan.engine.buffer.Buffer used   = createBuffer(deviceFamily, UniformSpec.getSizeInBytes(), VK_BUFFER_USAGE_TRANSFER_DST_BIT | usage, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, VK_BUFFER_CREATE_SPARSE_BINDING_BIT);
+        no.stelar7.vulkan.engine.buffer.Buffer staged = createBuffer(deviceFamily, size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, 0);
+        no.stelar7.vulkan.engine.buffer.Buffer used   = createBuffer(deviceFamily, size, VK_BUFFER_USAGE_TRANSFER_DST_BIT | usage, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, VK_BUFFER_CREATE_SPARSE_BINDING_BIT);
         
         return new StagedBuffer(staged, used);
     }
     
-    private StagedBuffer createUniformBuffer(DeviceFamily deviceFamily)
+    public void setBufferData(StagedBuffer buffer, FloatBuffer data)
     {
-        StagedBuffer stagedBuffer = createStagedBuffer(deviceFamily, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
-        
-        MemoryBlock stagedMemory = stagedBuffer.getStaged().getMemoryBlock();
+        MemoryBlock stagedMemory = buffer.getHostBuffer().getMemoryBlock();
         
         PointerBuffer stagedPointer = memAllocPointer(1);
         EngineUtils.checkError(vkMapMemory(deviceFamily.getDevice(), stagedMemory.getMemory(), stagedMemory.getOffset(), stagedMemory.getSize(), 0, stagedPointer));
+        
         long pointer = stagedPointer.get(0);
         memFree(stagedPointer);
         
-        Matrix4f   uboData      = new Matrix4f().identity();
-        ByteBuffer matrixBuffer = memByteBuffer(pointer, UniformSpec.getSizeInBytes());
-        uboData.get(matrixBuffer);
+        FloatBuffer bufferData = memFloatBuffer(pointer, data.remaining());
+        bufferData.put(data);
         
         vkUnmapMemory(deviceFamily.getDevice(), stagedMemory.getMemory());
+    }
+    
+    private StagedBuffer createUniformBuffer(DeviceFamily deviceFamily)
+    {
+        StagedBuffer stagedBuffer = createStagedBuffer(deviceFamily, UniformSpec.getSizeInBytes(), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
+        
+        
+        FloatBuffer bufferData = memAllocFloat(16);
+        
+        Matrix4f uboData = new Matrix4f().identity();
+        uboData.get(bufferData);
+        
+        setBufferData(stagedBuffer, bufferData);
+        
+        memFree(bufferData);
         
         return stagedBuffer;
     }
@@ -1499,7 +1539,7 @@ public class VulkanRenderer
                 ups++;
                 timer += skipInterval;
                 
-                copyFromStagedBuffer(uniformBuffer);
+                swapHostToDevice(uniformBuffer);
                 
             }
             
@@ -1529,8 +1569,6 @@ public class VulkanRenderer
         memFree(imageIndex);
         memFree(waitMask);
         submitInfo.free();
-        
-        
     }
     
     private void postInit()
@@ -1543,13 +1581,21 @@ public class VulkanRenderer
         game.update();
     }
     
+    private int lastObjectListSize = 0;
+    
     private void render(long imageSemaphore, LongBuffer swapchains, PointerBuffer commandBuffers, IntBuffer imageIndex, VkSubmitInfo submitInfo, VkPresentInfoKHR presentInfo)
     {
         game.render();
         
+        if (lastObjectListSize != game.getGameObjects().size())
+        {
+            lastObjectListSize = game.getGameObjects().size();
+            shouldRecreate = true;
+        }
+        
         EngineUtils.checkError(vkAcquireNextImageKHR(deviceFamily.getDevice(), swapchain.getHandle(), Long.MAX_VALUE, imageSemaphore, VK_NULL_HANDLE, imageIndex));
         int index = imageIndex.get(0);
-    
+        
         commandBuffers.put(0, renderCommandBuffers[index]);
         EngineUtils.checkError(vkQueueSubmit(deviceQueue, submitInfo, VK_NULL_HANDLE));
         

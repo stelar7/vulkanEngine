@@ -4,38 +4,51 @@ import org.lwjgl.vulkan.*;
 
 public class StagedBuffer
 {
-    private Buffer staged;
-    private Buffer used;
+    private Buffer hostBuffer;
+    private Buffer deviceBuffer;
     
     public StagedBuffer(Buffer staged, Buffer used)
     {
-        this.staged = staged;
-        this.used = used;
+        this.hostBuffer = staged;
+        this.deviceBuffer = used;
     }
     
-    public Buffer getStaged()
+    /**
+     * Sets the host-local buffer
+     */
+    public Buffer getHostBuffer()
     {
-        return staged;
+        return hostBuffer;
     }
     
-    public void setStaged(Buffer staged)
+    /**
+     * Sets the host-local buffer
+     */
+    public void setHostBuffer(Buffer hostBuffer)
     {
-        this.staged = staged;
+        this.hostBuffer = hostBuffer;
     }
     
-    public Buffer getUsed()
+    
+    /**
+     * Gets the device-local buffer
+     */
+    public Buffer getDeviceBuffer()
     {
-        return used;
+        return deviceBuffer;
     }
     
-    public void setUsed(Buffer used)
+    /**
+     * Sets the device-local buffer
+     */
+    public void setDeviceBuffer(Buffer deviceBuffer)
     {
-        this.used = used;
+        this.deviceBuffer = deviceBuffer;
     }
     
     public void free(VkDevice device)
     {
-        staged.free(device);
-        used.free(device);
+        hostBuffer.free(device);
+        deviceBuffer.free(device);
     }
 }
