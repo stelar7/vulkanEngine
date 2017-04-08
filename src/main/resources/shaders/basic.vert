@@ -19,5 +19,5 @@ void main()
 {
     outColor = inColor;
 
-    gl_Position = vec4(inPos, 1);
+    gl_Position = ubo.mvc * vec4(inPos, 1);
 }

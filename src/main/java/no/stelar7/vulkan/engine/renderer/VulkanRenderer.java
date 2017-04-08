@@ -883,8 +883,8 @@ public class VulkanRenderer
                                                                                                     .rasterizationSamples(VK_SAMPLE_COUNT_1_BIT);
         
         VkPipelineShaderStageCreateInfo.Buffer shaderStages = VkPipelineShaderStageCreateInfo.calloc(2);
-        shaderStages.get(0).set(loadShader(device, "shaders/compiled/basic.vert.spv", VK_SHADER_STAGE_VERTEX_BIT));
-        shaderStages.get(1).set(loadShader(device, "shaders/compiled/basic.frag.spv", VK_SHADER_STAGE_FRAGMENT_BIT));
+        shaderStages.get(0).set(loadShader(device, "shaders/compiled/vert.spv", VK_SHADER_STAGE_VERTEX_BIT));
+        shaderStages.get(1).set(loadShader(device, "shaders/compiled/frag.spv", VK_SHADER_STAGE_FRAGMENT_BIT));
         
         LongBuffer setLayout = memAllocLong(1).put(0, descriptorSetLayout);
         VkPipelineLayoutCreateInfo pipelineLayout = VkPipelineLayoutCreateInfo.calloc()
@@ -932,9 +932,7 @@ public class VulkanRenderer
     
     private VkPipelineShaderStageCreateInfo loadShader(VkDevice device, String path, int stage)
     {
-        ByteBuffer shaderCode = memAlloc(1024);
-        shaderCode.put(EngineUtils.resourceToByteBuffer(path));
-        shaderCode.flip();
+        ByteBuffer shaderCode = EngineUtils.resourceToByteBuffer(path);
         
         VkShaderModuleCreateInfo shaderModule = VkShaderModuleCreateInfo.calloc()
                                                                         .sType(VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO)
@@ -953,7 +951,6 @@ public class VulkanRenderer
                                                                                      .pName(memUTF8("main"));
         
         memFree(handleHolder);
-        memFree(shaderCode);
         
         return shaderStage;
     }
