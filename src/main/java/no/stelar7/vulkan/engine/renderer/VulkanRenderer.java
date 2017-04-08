@@ -3,7 +3,7 @@ package no.stelar7.vulkan.engine.renderer;
 import no.stelar7.vulkan.engine.EngineUtils;
 import no.stelar7.vulkan.engine.buffer.Buffer;
 import no.stelar7.vulkan.engine.buffer.*;
-import no.stelar7.vulkan.engine.game.*;
+import no.stelar7.vulkan.engine.game.Game;
 import no.stelar7.vulkan.engine.game.objects.GameObject;
 import no.stelar7.vulkan.engine.memory.MemoryAllocator;
 import no.stelar7.vulkan.engine.memory.*;
@@ -250,14 +250,14 @@ public class VulkanRenderer
         vkQueueWaitIdle(deviceQueue);
     }
     
-    private Buffer createBuffer(DeviceFamily deviceFamily, int size, int usage, int properties, int bufferFlags)
+    private Buffer createBuffer(DeviceFamily deviceFamily, int size, int usage, int properties, boolean sparse)
     {
         no.stelar7.vulkan.engine.buffer.Buffer buffer = new no.stelar7.vulkan.engine.buffer.Buffer();
         buffer.setSize(size);
         
         LongBuffer handleHolder = memAllocLong(1);
         VkBufferCreateInfo bufferCreateInfo = VkBufferCreateInfo.calloc()
-                                                                .flags(bufferFlags)
+                                                                .flags(sparse ? VK_BUFFER_CREATE_SPARSE_BINDING_BIT : 0)
                                                                 .sType(VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO)
                                                                 .sharingMode(VK_SHARING_MODE_EXCLUSIVE)
                                                                 .size(size)
@@ -280,7 +280,7 @@ public class VulkanRenderer
         MemoryBlock block = MemoryAllocator.INSTANCE.allocate(allocationSize, index);
         buffer.setMemoryBlock(block);
         
-        if (EngineUtils.hasFlag(bufferFlags, VK_BUFFER_CREATE_SPARSE_BINDING_BIT))
+        if (sparse)
         {
             VkSparseMemoryBind.Buffer memoryBinds = VkSparseMemoryBind.calloc(1)
                                                                       .memory(buffer.getMemoryBlock().getMemory())
@@ -577,7 +577,7 @@ public class VulkanRenderer
         
         VkImageCreateInfo imageCreateInfo = VkImageCreateInfo.calloc()
                                                              .flags(VK_IMAGE_CREATE_SPARSE_BINDING_BIT | VK_IMAGE_CREATE_SPARSE_ALIASED_BIT)
-                                                             .usage(VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT)
+                                                             .usage(VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT)
                                                              .sType(VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO)
                                                              .tiling(VK_IMAGE_TILING_OPTIMAL)
                                                              .samples(VK_SAMPLE_COUNT_1_BIT)
@@ -714,8 +714,6 @@ public class VulkanRenderer
     {
         
         VkExtent2D size = surfaceCapabilities.currentExtent();
-        System.out.println(size.width());
-        System.out.println(size.height());
         
         if (size.width() != -1 && size.height() != -1)
         {
@@ -993,8 +991,8 @@ public class VulkanRenderer
     
     public StagedBuffer createStagedBuffer(DeviceFamily deviceFamily, int size, int usage)
     {
-        no.stelar7.vulkan.engine.buffer.Buffer staged = createBuffer(deviceFamily, size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, 0);
-        no.stelar7.vulkan.engine.buffer.Buffer used   = createBuffer(deviceFamily, size, VK_BUFFER_USAGE_TRANSFER_DST_BIT | usage, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, VK_BUFFER_CREATE_SPARSE_BINDING_BIT);
+        no.stelar7.vulkan.engine.buffer.Buffer staged = createBuffer(deviceFamily, size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, false);
+        no.stelar7.vulkan.engine.buffer.Buffer used   = createBuffer(deviceFamily, size, VK_BUFFER_USAGE_TRANSFER_DST_BIT | usage, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, true);
         
         return new StagedBuffer(staged, used);
     }
