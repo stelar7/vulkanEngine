@@ -72,6 +72,7 @@ public class VulkanRenderer
     private static final boolean DEBUG_MODE = false;
     
     private List<Long> shaders = new ArrayList<>();
+    private VkClearValue.Buffer clearColor;
     
     public DeviceFamily getDeviceFamily()
     {
@@ -276,12 +277,21 @@ public class VulkanRenderer
         bufferCreateInfo.free();
         memFree(handleHolder);
         
+        if (DEBUG_MODE)
+        {
+            System.out.println("Requested buffer size: " + size);
+        }
+        
         VkMemoryRequirements requirements = VkMemoryRequirements.calloc();
         vkGetBufferMemoryRequirements(deviceFamily.getDevice(), buffer.getBufferHandle(), requirements);
         long allocationSize = requirements.size();
         int  index          = EngineUtils.findMemoryTypeIndex(deviceFamily.getMemoryProperties(), requirements, properties);
         requirements.free();
         
+        if (DEBUG_MODE)
+        {
+            System.out.println("Recived buffer size: " + allocationSize);
+        }
         
         MemoryBlock block = MemoryAllocator.INSTANCE.allocate(allocationSize, index);
         buffer.setMemoryBlock(block);
@@ -446,17 +456,10 @@ public class VulkanRenderer
         VkCommandBufferBeginInfo beginInfo = VkCommandBufferBeginInfo.calloc()
                                                                      .sType(VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO);
         
-        VkClearValue.Buffer clearValues = VkClearValue.calloc(2);
-        clearValues.get(0).color()
-                   .float32(0, .8f)
-                   .float32(1, .4f)
-                   .float32(2, .6f)
-                   .float32(3, 1);
-        clearValues.get(1).depthStencil().depth(0).stencil(0);
         
         VkRenderPassBeginInfo passBeginInfo = VkRenderPassBeginInfo.calloc()
                                                                    .sType(VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO)
-                                                                   .pClearValues(clearValues)
+                                                                   .pClearValues(clearColor)
                                                                    .renderPass(renderpass);
         passBeginInfo.renderArea().offset().set(0, 0);
         passBeginInfo.renderArea().extent().set(width, height);
@@ -464,8 +467,8 @@ public class VulkanRenderer
         VkViewport.Buffer viewport = VkViewport.calloc(1)
                                                .height(height)
                                                .width(width)
-                                               .minDepth(1)
-                                               .maxDepth(0);
+                                               .minDepth(0)
+                                               .maxDepth(1);
         
         VkRect2D.Buffer scissor = VkRect2D.calloc(1);
         scissor.extent().set(width, height);
@@ -499,9 +502,11 @@ public class VulkanRenderer
                     long pointer = stagedPointer.get(0);
                     memFree(stagedPointer);
                     
-                    FloatBuffer data = memFloatBuffer(pointer, obj.getModel().getVertexCount());
+                    FloatBuffer data = memFloatBuffer(pointer, obj.getModel().getVertexCount() * VertexSpec.getVertexInputState().pVertexAttributeDescriptions().get(1).offset() / Float.BYTES);
+                    System.out.print("Data in vertex buffer:");
                     EngineUtils.printBuffer(data);
                     vkUnmapMemory(deviceFamily.getDevice(), hostBuffer.getMemoryBlock().getMemory());
+                    System.out.print("Vertex count:");
                     System.out.println(obj.getModel().getVertexCount());
                 }
                 
@@ -528,7 +533,6 @@ public class VulkanRenderer
         scissor.free();
         viewport.free();
         beginInfo.free();
-        clearValues.free();
         passBeginInfo.free();
         memFree(vertexHolder);
         memFree(offsetHolder);
@@ -890,8 +894,8 @@ public class VulkanRenderer
                                                                                                     .rasterizationSamples(VK_SAMPLE_COUNT_1_BIT);
         
         VkPipelineShaderStageCreateInfo.Buffer shaderStages = VkPipelineShaderStageCreateInfo.calloc(2);
-        shaderStages.get(0).set(loadShader(device, "shaders/compiled/vert.spv", VK_SHADER_STAGE_VERTEX_BIT));
-        shaderStages.get(1).set(loadShader(device, "shaders/compiled/frag.spv", VK_SHADER_STAGE_FRAGMENT_BIT));
+        shaderStages.get(0).set(loadShader(device, "shaders/compiled/basic.vert.spv", VK_SHADER_STAGE_VERTEX_BIT));
+        shaderStages.get(1).set(loadShader(device, "shaders/compiled/basic.frag.spv", VK_SHADER_STAGE_FRAGMENT_BIT));
         
         LongBuffer setLayout = memAllocLong(1).put(0, descriptorSetLayout);
         VkPipelineLayoutCreateInfo pipelineLayout = VkPipelineLayoutCreateInfo.calloc()
@@ -1008,18 +1012,29 @@ public class VulkanRenderer
     
     public void setBufferData(StagedBuffer buffer, FloatBuffer data)
     {
-        MemoryBlock stagedMemory = buffer.getHostBuffer().getMemoryBlock();
+        if (DEBUG_MODE)
+        {
+            System.out.print("Adding data from buffer: ");
+            EngineUtils.printBuffer(data);
+        }
         
-        PointerBuffer stagedPointer = memAllocPointer(1);
-        EngineUtils.checkError(vkMapMemory(deviceFamily.getDevice(), stagedMemory.getMemory(), stagedMemory.getOffset(), stagedMemory.getSize(), 0, stagedPointer));
+        MemoryBlock hostMemory = buffer.getHostBuffer().getMemoryBlock();
         
-        long pointer = stagedPointer.get(0);
-        memFree(stagedPointer);
+        PointerBuffer hostPointer = memAllocPointer(1);
+        EngineUtils.checkError(vkMapMemory(deviceFamily.getDevice(), hostMemory.getMemory(), hostMemory.getOffset(), hostMemory.getSize(), 0, hostPointer));
+        long pointer = hostPointer.get(0);
+        memFree(hostPointer);
         
         FloatBuffer bufferData = memFloatBuffer(pointer, data.remaining());
         bufferData.put(data);
+        bufferData.flip();
+        vkUnmapMemory(deviceFamily.getDevice(), hostMemory.getMemory());
         
-        vkUnmapMemory(deviceFamily.getDevice(), stagedMemory.getMemory());
+        if (DEBUG_MODE)
+        {
+            System.out.printf("Added data to buffer (%d: offset %d): ", buffer.getDeviceBuffer().getMemoryBlock().getMemory(), buffer.getDeviceBuffer().getMemoryBlock().getOffset());
+            EngineUtils.printBuffer(bufferData);
+        }
         
         buffer.setDirty(true);
     }
@@ -1619,4 +1634,10 @@ public class VulkanRenderer
     {
         this.game = game;
     }
+    
+    public void setClearColor(VkClearValue.Buffer clearColor)
+    {
+        this.clearColor = clearColor;
+    }
+    
 }

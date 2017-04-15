@@ -69,6 +69,8 @@ public class TestGame extends Game
         clearColors.get(0).color(clearColorValue);
         clearColors.get(1).depthStencil(clearDepthValue);
         
+        renderer.setClearColor(clearColors);
+        
         FloatBuffer vData = memAllocFloat(pos.size() * 3);
         for (int i = 0; i < pos.size(); i++)
         {
