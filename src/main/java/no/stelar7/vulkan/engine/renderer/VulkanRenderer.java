@@ -517,6 +517,8 @@ public class VulkanRenderer
                     memFree(hostPointer);
                 }
                 
+                // TODO: Find out why the vertex buffer is empty in RenderDoc
+                
                 vertexHolder.put(0, obj.getModel().getVertexBuffer().getDeviceBuffer().getBufferHandle());
                 vkCmdBindVertexBuffers(renderBuffer, 0, vertexHolder, offsetHolder);
                 vkCmdDraw(renderBuffer, obj.getModel().getVertexCount(), 1, 0, 0);
@@ -861,9 +863,9 @@ public class VulkanRenderer
         
         VkPipelineRasterizationStateCreateInfo rasterizationState = VkPipelineRasterizationStateCreateInfo.calloc()
                                                                                                           .sType(VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO)
-                                                                                                          .frontFace(VK_FRONT_FACE_COUNTER_CLOCKWISE)
+                                                                                                          .frontFace(VK_FRONT_FACE_CLOCKWISE)
                                                                                                           .polygonMode(VK_POLYGON_MODE_FILL)
-                                                                                                          .cullMode(VK_CULL_MODE_BACK_BIT)
+                                                                                                          .cullMode(VK_CULL_MODE_NONE)
                                                                                                           .lineWidth(1);
         
         VkPipelineColorBlendAttachmentState.Buffer colorWriteMask = VkPipelineColorBlendAttachmentState.calloc(1)
@@ -901,8 +903,8 @@ public class VulkanRenderer
                                                                                                     .rasterizationSamples(VK_SAMPLE_COUNT_1_BIT);
         
         VkPipelineShaderStageCreateInfo.Buffer shaderStages = VkPipelineShaderStageCreateInfo.calloc(2);
-        shaderStages.get(0).set(loadShader(device, "shaders/compiled/vert.spv", VK_SHADER_STAGE_VERTEX_BIT));
-        shaderStages.get(1).set(loadShader(device, "shaders/compiled/frag.spv", VK_SHADER_STAGE_FRAGMENT_BIT));
+        shaderStages.get(0).set(loadShader(device, "shaders/compiled/basic.vert.spv", VK_SHADER_STAGE_VERTEX_BIT));
+        shaderStages.get(1).set(loadShader(device, "shaders/compiled/basic.frag.spv", VK_SHADER_STAGE_FRAGMENT_BIT));
         
         LongBuffer setLayout = memAllocLong(1).put(0, descriptorSetLayout);
         VkPipelineLayoutCreateInfo pipelineLayout = VkPipelineLayoutCreateInfo.calloc()
