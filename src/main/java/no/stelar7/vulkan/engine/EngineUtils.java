@@ -261,6 +261,23 @@ public final class EngineUtils
         System.out.println(result);
     }
     
+    public static void printBuffer(IntBuffer data)
+    {
+        StringBuilder result = new StringBuilder("(");
+        
+        data.mark();
+        
+        while (data.remaining() > 0)
+        {
+            result.append(data.get()).append(", ");
+        }
+        
+        result.reverse().deleteCharAt(0).deleteCharAt(0).reverse().append(")");
+        data.reset();
+        
+        System.out.println(result);
+    }
+    
     public static void printBuffer(ByteBuffer data)
     {
         StringBuilder result = new StringBuilder();

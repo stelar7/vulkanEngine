@@ -244,8 +244,9 @@ public class VulkanRenderer
         beginInfo.free();
         
         VkBufferCopy.Buffer bufferCopy = VkBufferCopy.calloc(1)
-                                                     .srcOffset(buffer.getHostBuffer().getMemoryBlock().getOffset())
-                                                     .dstOffset(buffer.getDeviceBuffer().getMemoryBlock().getOffset())
+                                                     // This is the offset into the buffer. We do not index our buffers...
+                                                     //.srcOffset(buffer.getHostBuffer().getMemoryBlock().getOffset())
+                                                     //.dstOffset(buffer.getDeviceBuffer().getMemoryBlock().getOffset())
                                                      .size(buffer.getDeviceBuffer().getMemoryBlock().getSize());
         
         vkCmdCopyBuffer(setupCommandBuffer, buffer.getHostBuffer().getBufferHandle(), buffer.getDeviceBuffer().getBufferHandle(), bufferCopy);
@@ -495,21 +496,27 @@ public class VulkanRenderer
             {
                 if (DEBUG_MODE)
                 {
+                    if (obj.getModel().getVertexBuffer().isDirty())
+                    {
+                        System.out.println("The vertex buffer has not been swapped!");
+                    }
+                    
+                    if (obj.getModel().getIndexBuffer().isDirty())
+                    {
+                        System.out.println("The vertex buffer has not been swapped!");
+                    }
+                    
                     Buffer        hostBuffer  = obj.getModel().getVertexBuffer().getHostBuffer();
                     PointerBuffer hostPointer = memAllocPointer(1);
                     
                     EngineUtils.checkError(vkMapMemory(deviceFamily.getDevice(), hostBuffer.getMemoryBlock().getMemory(), hostBuffer.getMemoryBlock().getOffset(), hostBuffer.getSize(), 0, hostPointer));
                     long pointer = hostPointer.get(0);
                     
-                    if (obj.getModel().getVertexBuffer().isDirty())
-                    {
-                        System.out.println("The vertex buffer has not been swapped!");
-                    }
                     
-                    System.out.print("Vertex count:");
-                    System.out.println(obj.getModel().getVertexCount());
+                    System.out.print("index count:");
+                    System.out.println(obj.getModel().getIndexCount());
                     
-                    FloatBuffer data = memFloatBuffer(pointer, obj.getModel().getVertexCount() * VertexSpec.getVertexInputState().pVertexAttributeDescriptions().get(1).offset() / Float.BYTES);
+                    FloatBuffer data = memFloatBuffer(pointer, obj.getModel().getIndexCount() * VertexSpec.getVertexInputState().pVertexBindingDescriptions().stride() / Float.BYTES);
                     System.out.print("Data in vertex buffer:");
                     EngineUtils.printBuffer(data);
                     
@@ -517,11 +524,10 @@ public class VulkanRenderer
                     memFree(hostPointer);
                 }
                 
-                // TODO: Find out why the vertex buffer is empty in RenderDoc
-                
                 vertexHolder.put(0, obj.getModel().getVertexBuffer().getDeviceBuffer().getBufferHandle());
                 vkCmdBindVertexBuffers(renderBuffer, 0, vertexHolder, offsetHolder);
-                vkCmdDraw(renderBuffer, obj.getModel().getVertexCount(), 1, 0, 0);
+                vkCmdBindIndexBuffer(renderBuffer, obj.getModel().getIndexBuffer().getDeviceBuffer().getBufferHandle(), 0, VK_INDEX_TYPE_UINT32);
+                vkCmdDrawIndexed(renderBuffer, obj.getModel().getIndexCount(), 1, 0, 0, 1);
             }
             
             vkCmdEndRenderPass(renderBuffer);
@@ -1019,7 +1025,7 @@ public class VulkanRenderer
         return new StagedBuffer(staged, used);
     }
     
-    public void setBufferData(StagedBuffer buffer, FloatBuffer data)
+    public void setFloatBufferData(StagedBuffer buffer, FloatBuffer data)
     {
         if (DEBUG_MODE)
         {
@@ -1048,6 +1054,35 @@ public class VulkanRenderer
         buffer.setDirty(true);
     }
     
+    public void setIntBufferData(StagedBuffer buffer, IntBuffer data)
+    {
+        if (DEBUG_MODE)
+        {
+            System.out.print("Adding data from buffer: ");
+            EngineUtils.printBuffer(data);
+        }
+        
+        MemoryBlock hostMemory = buffer.getHostBuffer().getMemoryBlock();
+        
+        PointerBuffer hostPointer = memAllocPointer(1);
+        EngineUtils.checkError(vkMapMemory(deviceFamily.getDevice(), hostMemory.getMemory(), hostMemory.getOffset(), hostMemory.getSize(), 0, hostPointer));
+        long pointer = hostPointer.get(0);
+        memFree(hostPointer);
+        
+        IntBuffer bufferData = memIntBuffer(pointer, data.remaining());
+        bufferData.put(data);
+        bufferData.flip();
+        vkUnmapMemory(deviceFamily.getDevice(), hostMemory.getMemory());
+        
+        if (DEBUG_MODE)
+        {
+            System.out.printf("Added data to buffer (%d: offset %d): ", buffer.getDeviceBuffer().getMemoryBlock().getMemory(), buffer.getDeviceBuffer().getMemoryBlock().getOffset());
+            EngineUtils.printBuffer(bufferData);
+        }
+        
+        buffer.setDirty(true);
+    }
+    
     private StagedBuffer createUniformBuffer(DeviceFamily deviceFamily)
     {
         StagedBuffer stagedBuffer = createStagedBuffer(deviceFamily, UniformSpec.getSizeInBytes(), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
@@ -1058,7 +1093,7 @@ public class VulkanRenderer
         Matrix4f uboData = new Matrix4f().identity();
         uboData.get(bufferData);
         
-        setBufferData(stagedBuffer, bufferData);
+        setFloatBufferData(stagedBuffer, bufferData);
         
         memFree(bufferData);
         

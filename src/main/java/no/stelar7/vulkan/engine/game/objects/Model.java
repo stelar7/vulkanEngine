@@ -1,18 +1,19 @@
 package no.stelar7.vulkan.engine.game.objects;
 
 import no.stelar7.vulkan.engine.buffer.StagedBuffer;
-import no.stelar7.vulkan.engine.spec.VertexSpec;
 import org.lwjgl.vulkan.*;
 
 public class Model
 {
     private StagedBuffer vertexBuffer;
-    private int          vertexCount;
+    private StagedBuffer indexBuffer;
+    private int          indexCount;
     
-    public Model(StagedBuffer vertexBuffer)
+    public Model(StagedBuffer vertexBuffer, StagedBuffer indexBuffer)
     {
         this.vertexBuffer = vertexBuffer;
-        setVertexCount((int) (vertexBuffer.getHostBuffer().getSize() / VertexSpec.getVertexInputState().pVertexAttributeDescriptions().get(1).offset()));
+        this.indexBuffer = indexBuffer;
+        indexCount = (int) (indexBuffer.getHostBuffer().getSize() / Integer.BYTES);
     }
     
     public StagedBuffer getVertexBuffer()
@@ -20,18 +21,19 @@ public class Model
         return vertexBuffer;
     }
     
-    public int getVertexCount()
+    public int getIndexCount()
     {
-        return vertexCount;
-    }
-    
-    public void setVertexCount(int vertexCount)
-    {
-        this.vertexCount = vertexCount;
+        return indexCount;
     }
     
     public void free(VkDevice device)
     {
         vertexBuffer.free(device);
+        indexBuffer.free(device);
+    }
+    
+    public StagedBuffer getIndexBuffer()
+    {
+        return indexBuffer;
     }
 }
