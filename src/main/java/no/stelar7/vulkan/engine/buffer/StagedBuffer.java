@@ -4,8 +4,9 @@ import org.lwjgl.vulkan.*;
 
 public class StagedBuffer
 {
-    private Buffer hostBuffer;
-    private Buffer deviceBuffer;
+    private Buffer  hostBuffer;
+    private Buffer  deviceBuffer;
+    private boolean dirty;
     
     public StagedBuffer(Buffer staged, Buffer used)
     {
@@ -50,5 +51,15 @@ public class StagedBuffer
     {
         hostBuffer.free(device);
         deviceBuffer.free(device);
+    }
+    
+    public boolean isDirty()
+    {
+        return dirty;
+    }
+    
+    public void setDirty(boolean dirty)
+    {
+        this.dirty = dirty;
     }
 }

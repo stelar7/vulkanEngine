@@ -63,9 +63,13 @@ public class VulkanRenderer
     private long[]            framebuffers;
     private VkCommandBuffer[] renderCommandBuffers;
     private DepthStencil      depthStencil;
+    
     private boolean shouldRecreate = false;
+    
     private int width;
     private int height;
+    
+    private static final boolean DEBUG_MODE = false;
     
     private List<Long> shaders = new ArrayList<>();
     
@@ -248,6 +252,8 @@ public class VulkanRenderer
         
         submitCommandBuffer(deviceQueue, setupCommandBuffer);
         vkQueueWaitIdle(deviceQueue);
+        
+        buffer.setDirty(false);
     }
     
     private Buffer createBuffer(DeviceFamily deviceFamily, int size, int usage, int properties, boolean sparse)
@@ -484,17 +490,20 @@ public class VulkanRenderer
             
             for (GameObject obj : gameObjects)
             {
-                Buffer hostBuffer = obj.getModel().getVertexBuffer().getHostBuffer();
-                
-                PointerBuffer stagedPointer = memAllocPointer(1);
-                EngineUtils.checkError(vkMapMemory(deviceFamily.getDevice(), hostBuffer.getMemoryBlock().getMemory(), hostBuffer.getMemoryBlock().getOffset(), hostBuffer.getSize(), 0, stagedPointer));
-                long pointer = stagedPointer.get(0);
-                memFree(stagedPointer);
-                
-                FloatBuffer data = memFloatBuffer(pointer, obj.getModel().getVertexCount());
-                EngineUtils.printBuffer(data);
-                vkUnmapMemory(deviceFamily.getDevice(), hostBuffer.getMemoryBlock().getMemory());
-                
+                if (DEBUG_MODE)
+                {
+                    Buffer hostBuffer = obj.getModel().getVertexBuffer().getHostBuffer();
+                    
+                    PointerBuffer stagedPointer = memAllocPointer(1);
+                    EngineUtils.checkError(vkMapMemory(deviceFamily.getDevice(), hostBuffer.getMemoryBlock().getMemory(), hostBuffer.getMemoryBlock().getOffset(), hostBuffer.getSize(), 0, stagedPointer));
+                    long pointer = stagedPointer.get(0);
+                    memFree(stagedPointer);
+                    
+                    FloatBuffer data = memFloatBuffer(pointer, obj.getModel().getVertexCount());
+                    EngineUtils.printBuffer(data);
+                    vkUnmapMemory(deviceFamily.getDevice(), hostBuffer.getMemoryBlock().getMemory());
+                    System.out.println(obj.getModel().getVertexCount());
+                }
                 
                 vertexHolder.put(0, obj.getModel().getVertexBuffer().getDeviceBuffer().getBufferHandle());
                 vkCmdBindVertexBuffers(renderBuffer, 0, vertexHolder, offsetHolder);
@@ -1011,6 +1020,8 @@ public class VulkanRenderer
         bufferData.put(data);
         
         vkUnmapMemory(deviceFamily.getDevice(), stagedMemory.getMemory());
+        
+        buffer.setDirty(true);
     }
     
     private StagedBuffer createUniformBuffer(DeviceFamily deviceFamily)
@@ -1534,8 +1545,10 @@ public class VulkanRenderer
                 ups++;
                 timer += skipInterval;
                 
-                swapHostToDevice(uniformBuffer);
-                
+                if (uniformBuffer.isDirty())
+                {
+                    swapHostToDevice(uniformBuffer);
+                }
             }
             
             synchronized (lock)

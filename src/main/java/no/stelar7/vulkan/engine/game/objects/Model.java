@@ -1,6 +1,7 @@
 package no.stelar7.vulkan.engine.game.objects;
 
 import no.stelar7.vulkan.engine.buffer.StagedBuffer;
+import no.stelar7.vulkan.engine.spec.VertexSpec;
 import org.lwjgl.vulkan.*;
 
 public class Model
@@ -11,7 +12,7 @@ public class Model
     public Model(StagedBuffer vertexBuffer)
     {
         this.vertexBuffer = vertexBuffer;
-        setVertexCount((int) (vertexBuffer.getHostBuffer().getSize() / Float.BYTES));
+        setVertexCount((int) (vertexBuffer.getHostBuffer().getSize() / VertexSpec.getVertexInputState().pVertexAttributeDescriptions().get(1).offset()));
     }
     
     public StagedBuffer getVertexBuffer()

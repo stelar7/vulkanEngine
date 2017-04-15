@@ -7,6 +7,7 @@ import java.io.*;
 import java.net.URL;
 import java.nio.*;
 import java.nio.channels.*;
+import java.util.Locale;
 
 import static org.lwjgl.vulkan.EXTDebugReport.*;
 import static org.lwjgl.vulkan.KHRDisplaySwapchain.*;
@@ -224,8 +225,8 @@ public final class EngineUtils
                     {
                         buffer = resizeBuffer(buffer, buffer.capacity() * 2);
                     }
-                    buffer.flip();
                 }
+                buffer.flip();
                 return buffer;
             } catch (IOException e)
             {
@@ -256,6 +257,29 @@ public final class EngineUtils
         
         result.reverse().deleteCharAt(0).deleteCharAt(0).reverse().append(")");
         data.reset();
+        
+        System.out.println(result);
+    }
+    
+    public static void printBuffer(ByteBuffer data)
+    {
+        StringBuilder result = new StringBuilder();
+        
+        data.mark();
+        
+        while (data.remaining() > 0)
+        {
+            String hex = Integer.toHexString(Byte.toUnsignedInt(data.get())).toUpperCase(Locale.ENGLISH);
+            if (hex.length() != 2)
+            {
+                hex = "0" + hex;
+            }
+            result.append(hex).append(" ");
+        }
+        
+        data.reset();
+        
+        result.reverse().deleteCharAt(0).reverse();
         
         System.out.println(result);
     }

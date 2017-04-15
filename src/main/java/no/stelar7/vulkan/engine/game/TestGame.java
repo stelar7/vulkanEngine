@@ -1,11 +1,9 @@
 package no.stelar7.vulkan.engine.game;
 
-import no.stelar7.vulkan.engine.EngineUtils;
-import no.stelar7.vulkan.engine.buffer.*;
+import no.stelar7.vulkan.engine.buffer.StagedBuffer;
 import no.stelar7.vulkan.engine.game.objects.*;
 import no.stelar7.vulkan.engine.renderer.VulkanRenderer;
 import org.joml.*;
-import org.lwjgl.*;
 import org.lwjgl.vulkan.*;
 
 import java.nio.FloatBuffer;
@@ -79,25 +77,18 @@ public class TestGame extends Game
             vData.put((i * 3) + 1, vertice.get(1));
             vData.put((i * 3) + 2, vertice.get(2));
         }
+        
         StagedBuffer stagedBuffer = renderer.createStagedBuffer(renderer.getDeviceFamily(), vData.remaining() * Float.BYTES, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+        
         renderer.setBufferData(stagedBuffer, vData);
         renderer.swapHostToDevice(stagedBuffer);
+        
         model = new Model(stagedBuffer);
-        memFree(vData);
         
         item = new GameObject();
         item.setModel(model);
-    
-        Buffer hostBuffer = model.getVertexBuffer().getHostBuffer();
-    
-        PointerBuffer stagedPointer = memAllocPointer(1);
-        EngineUtils.checkError(vkMapMemory(renderer.getDeviceFamily().getDevice(), hostBuffer.getMemoryBlock().getMemory(), hostBuffer.getMemoryBlock().getOffset(), hostBuffer.getSize(), 0, stagedPointer));
-        long pointer = stagedPointer.get(0);
-        memFree(stagedPointer);
-    
-        FloatBuffer data = memFloatBuffer(pointer, model.getVertexCount());
-        EngineUtils.printBuffer(data);
-        vkUnmapMemory(renderer.getDeviceFamily().getDevice(), hostBuffer.getMemoryBlock().getMemory());
+        
+        memFree(vData);
         
         super.init();
     }
