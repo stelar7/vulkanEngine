@@ -495,19 +495,26 @@ public class VulkanRenderer
             {
                 if (DEBUG_MODE)
                 {
-                    Buffer hostBuffer = obj.getModel().getVertexBuffer().getHostBuffer();
+                    Buffer        hostBuffer  = obj.getModel().getVertexBuffer().getHostBuffer();
+                    PointerBuffer hostPointer = memAllocPointer(1);
                     
-                    PointerBuffer stagedPointer = memAllocPointer(1);
-                    EngineUtils.checkError(vkMapMemory(deviceFamily.getDevice(), hostBuffer.getMemoryBlock().getMemory(), hostBuffer.getMemoryBlock().getOffset(), hostBuffer.getSize(), 0, stagedPointer));
-                    long pointer = stagedPointer.get(0);
-                    memFree(stagedPointer);
+                    EngineUtils.checkError(vkMapMemory(deviceFamily.getDevice(), hostBuffer.getMemoryBlock().getMemory(), hostBuffer.getMemoryBlock().getOffset(), hostBuffer.getSize(), 0, hostPointer));
+                    long pointer = hostPointer.get(0);
+                    
+                    if (obj.getModel().getVertexBuffer().isDirty())
+                    {
+                        System.out.println("The vertex buffer has not been swapped!");
+                    }
+                    
+                    System.out.print("Vertex count:");
+                    System.out.println(obj.getModel().getVertexCount());
                     
                     FloatBuffer data = memFloatBuffer(pointer, obj.getModel().getVertexCount() * VertexSpec.getVertexInputState().pVertexAttributeDescriptions().get(1).offset() / Float.BYTES);
                     System.out.print("Data in vertex buffer:");
                     EngineUtils.printBuffer(data);
+                    
                     vkUnmapMemory(deviceFamily.getDevice(), hostBuffer.getMemoryBlock().getMemory());
-                    System.out.print("Vertex count:");
-                    System.out.println(obj.getModel().getVertexCount());
+                    memFree(hostPointer);
                 }
                 
                 vertexHolder.put(0, obj.getModel().getVertexBuffer().getDeviceBuffer().getBufferHandle());
@@ -894,8 +901,8 @@ public class VulkanRenderer
                                                                                                     .rasterizationSamples(VK_SAMPLE_COUNT_1_BIT);
         
         VkPipelineShaderStageCreateInfo.Buffer shaderStages = VkPipelineShaderStageCreateInfo.calloc(2);
-        shaderStages.get(0).set(loadShader(device, "shaders/compiled/basic.vert.spv", VK_SHADER_STAGE_VERTEX_BIT));
-        shaderStages.get(1).set(loadShader(device, "shaders/compiled/basic.frag.spv", VK_SHADER_STAGE_FRAGMENT_BIT));
+        shaderStages.get(0).set(loadShader(device, "shaders/compiled/vert.spv", VK_SHADER_STAGE_VERTEX_BIT));
+        shaderStages.get(1).set(loadShader(device, "shaders/compiled/frag.spv", VK_SHADER_STAGE_FRAGMENT_BIT));
         
         LongBuffer setLayout = memAllocLong(1).put(0, descriptorSetLayout);
         VkPipelineLayoutCreateInfo pipelineLayout = VkPipelineLayoutCreateInfo.calloc()
@@ -1604,16 +1611,21 @@ public class VulkanRenderer
         game.update();
     }
     
-    private int lastObjectListSize = 0;
+    private List<GameObject> lastObjectList = new ArrayList<>();
     
     private void render(long imageSemaphore, LongBuffer swapchains, PointerBuffer commandBuffers, IntBuffer imageIndex, VkSubmitInfo submitInfo, VkPresentInfoKHR presentInfo)
     {
         game.render();
         
-        if (lastObjectListSize != game.getGameObjects().size())
+        if (!lastObjectList.equals(game.getGameObjects()))
         {
-            lastObjectListSize = game.getGameObjects().size();
+            lastObjectList = game.getGameObjects();
             shouldRecreate = true;
+            
+            if (DEBUG_MODE)
+            {
+                System.out.println("Recreating pipeline becase render objects changed.");
+            }
         }
         
         EngineUtils.checkError(vkAcquireNextImageKHR(deviceFamily.getDevice(), swapchain.getHandle(), Long.MAX_VALUE, imageSemaphore, VK_NULL_HANDLE, imageIndex));
