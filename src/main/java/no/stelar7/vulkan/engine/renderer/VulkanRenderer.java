@@ -287,6 +287,7 @@ public class VulkanRenderer
         vkGetBufferMemoryRequirements(deviceFamily.getDevice(), buffer.getBufferHandle(), requirements);
         long allocationSize = requirements.size();
         int  index          = EngineUtils.findMemoryTypeIndex(deviceFamily.getMemoryProperties(), requirements, properties);
+        long alignment      = requirements.alignment();
         requirements.free();
         
         if (DEBUG_MODE)
@@ -294,11 +295,18 @@ public class VulkanRenderer
             System.out.println("Recived buffer size: " + allocationSize);
         }
         
-        MemoryBlock block = MemoryAllocator.INSTANCE.allocate(allocationSize, index);
+        
+        // TODO: Use "size" here when alignment is taken into consideration in the allocate function
+        MemoryBlock block = MemoryAllocator.INSTANCE.allocate(allocationSize, alignment, index);
         buffer.setMemoryBlock(block);
         
         if (sparse)
         {
+            if (DEBUG_MODE)
+            {
+                System.out.println("Creating sparse buffer");
+            }
+            
             VkSparseMemoryBind.Buffer memoryBinds = VkSparseMemoryBind.calloc(1)
                                                                       .memory(buffer.getMemoryBlock().getMemory())
                                                                       .memoryOffset(buffer.getMemoryBlock().getOffset())
@@ -321,6 +329,10 @@ public class VulkanRenderer
             
         } else
         {
+            if (DEBUG_MODE)
+            {
+                System.out.println("Creating non-sparse buffer");
+            }
             EngineUtils.checkError(vkBindBufferMemory(deviceFamily.getDevice(), buffer.getBufferHandle(), buffer.getMemoryBlock().getMemory(), buffer.getMemoryBlock().getOffset()));
         }
         
@@ -627,9 +639,10 @@ public class VulkanRenderer
         vkGetImageMemoryRequirements(deviceFamily.getDevice(), stencil.getImage(), memoryRequirements);
         int  index          = EngineUtils.findMemoryTypeIndex(deviceFamily.getMemoryProperties(), memoryRequirements, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
         long allocationSize = memoryRequirements.size();
+        long alignment      = memoryRequirements.alignment();
         memoryRequirements.free();
         
-        MemoryBlock block = MemoryAllocator.INSTANCE.allocate(allocationSize, index);
+        MemoryBlock block = MemoryAllocator.INSTANCE.allocate(allocationSize, alignment, index);
         stencil.setMemoryBlock(block);
         
         

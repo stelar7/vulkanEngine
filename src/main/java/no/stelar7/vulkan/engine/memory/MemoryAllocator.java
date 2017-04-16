@@ -20,13 +20,13 @@ public class MemoryAllocator
         MemoryAllocator.INSTANCE = this;
     }
     
-    public MemoryBlock allocate(long size, int memoryIndex)
+    public MemoryBlock allocate(long size, long alignment, int memoryIndex)
     {
         for (MemoryChunk chunk : chunks)
         {
             if (chunk.getMemoryIndex() == memoryIndex)
             {
-                MemoryBlock block = chunk.allocate(size);
+                MemoryBlock block = chunk.allocate(size, alignment);
                 if (block != null)
                 {
                     return block;
@@ -34,8 +34,8 @@ public class MemoryAllocator
             }
         }
         
-        chunks.add(allocateChunk(size, memoryIndex));
-        return allocate(size, memoryIndex);
+        chunks.add(allocateChunk(alignment, memoryIndex));
+        return allocate(size, alignment, memoryIndex);
     }
     
     public void deallocate(MemoryBlock block)

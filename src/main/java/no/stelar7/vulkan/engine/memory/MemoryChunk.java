@@ -60,8 +60,10 @@ public class MemoryChunk
         blocks.stream().filter(a -> a.equals(block)).findFirst().ifPresent(memoryBlock -> memoryBlock.setFree(true));
     }
     
-    public MemoryBlock allocate(long requestSize)
+    public MemoryBlock allocate(long requestSize, long alignment)
     {
+        // TODO: take alignment into consideration
+        
         if (requestSize > size)
         {
             return null;
@@ -82,7 +84,7 @@ public class MemoryChunk
                     {
                         prevBlock.setSize(prevBlock.getSize() + currentBlock.getSize());
                         blocks.remove(currentBlock);
-                        return allocate(requestSize);
+                        return allocate(requestSize, alignment);
                     }
                 }
                 
