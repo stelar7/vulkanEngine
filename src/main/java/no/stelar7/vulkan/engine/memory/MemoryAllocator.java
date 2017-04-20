@@ -12,12 +12,17 @@ public class MemoryAllocator
     private List<MemoryChunk> chunks = new ArrayList<>();
     private DeviceFamily deviceFamily;
     
-    public static MemoryAllocator INSTANCE;
+    public static MemoryAllocator getInstance()
+    {
+        return instance;
+    }
+    
+    private static MemoryAllocator instance = null;
     
     public MemoryAllocator(DeviceFamily deviceFamily)
     {
         this.deviceFamily = deviceFamily;
-        MemoryAllocator.INSTANCE = this;
+        instance = this;
     }
     
     public MemoryBlock allocate(long size, long alignment, int memoryIndex)

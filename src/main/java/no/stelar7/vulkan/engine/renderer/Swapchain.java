@@ -51,16 +51,17 @@ public class Swapchain
         this.views = views.clone();
     }
     
-    public void free(VkDevice device, boolean destroyHandle)
+    public void freeViews(VkDevice device)
     {
         for (long view : views)
         {
             vkDestroyImageView(device, view, null);
         }
         
-        if (destroyHandle)
-        {
-            vkDestroySwapchainKHR(device, handle, null);
-        }
+    }
+    
+    public void freeHandle(VkDevice device)
+    {
+        vkDestroySwapchainKHR(device, handle, null);
     }
 }

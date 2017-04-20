@@ -45,6 +45,6 @@ public class DepthStencil
     {
         vkDestroyImage(device, image, null);
         vkDestroyImageView(device, view, null);
-        MemoryAllocator.INSTANCE.deallocate(memoryBlock);
+        MemoryAllocator.getInstance().deallocate(memoryBlock);
     }
 }

@@ -155,7 +155,7 @@ public class VulkanRenderer
         
         game.delete();
         
-        MemoryAllocator.INSTANCE.free();
+        MemoryAllocator.getInstance().free();
         
         vkDestroySemaphore(deviceFamily.getDevice(), renderCompleteSemaphore, null);
         vkDestroySemaphore(deviceFamily.getDevice(), imageAcquredSemaphore, null);
@@ -166,7 +166,8 @@ public class VulkanRenderer
         }
         
         depthStencil.free(deviceFamily.getDevice());
-        swapchain.free(deviceFamily.getDevice(), true);
+        swapchain.freeViews(deviceFamily.getDevice());
+        swapchain.freeHandle(deviceFamily.getDevice());
         for (Long shader : shaders)
         {
             vkDestroyShaderModule(deviceFamily.getDevice(), shader, null);
@@ -297,7 +298,7 @@ public class VulkanRenderer
         
         
         // TODO: Use "size" here when alignment is taken into consideration in the allocate function
-        MemoryBlock block = MemoryAllocator.INSTANCE.allocate(allocationSize, alignment, index);
+        MemoryBlock block = MemoryAllocator.getInstance().allocate(allocationSize, alignment, index);
         buffer.setMemoryBlock(block);
         
         if (sparse)
@@ -411,7 +412,7 @@ public class VulkanRenderer
         
         if (swapchain != null)
         {
-            swapchain.free(deviceFamily.getDevice(), false);
+            swapchain.freeViews(deviceFamily.getDevice());
         }
         swapchain = createSwapchain(deviceFamily.getDevice(), swapchainImageCount, preTransform, presentMode, surfaceHandle, oldChain, setupCommandBuffer, colorAndDepthFormat);
         
@@ -642,7 +643,7 @@ public class VulkanRenderer
         long alignment      = memoryRequirements.alignment();
         memoryRequirements.free();
         
-        MemoryBlock block = MemoryAllocator.INSTANCE.allocate(allocationSize, alignment, index);
+        MemoryBlock block = MemoryAllocator.getInstance().allocate(allocationSize, alignment, index);
         stencil.setMemoryBlock(block);
         
         
