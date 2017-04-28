@@ -2,6 +2,8 @@ package no.stelar7.vulkan.engine.spec;
 
 import org.joml.Matrix4f;
 
+import java.util.*;
+
 public final class UniformSpec
 {
     
@@ -36,15 +38,27 @@ public final class UniformSpec
     
     
     // UBO Elements start
-    private static final Matrix4f mvc = null;
+    private static final List<Object> uboElements = Collections.singletonList(new Matrix4f());
     // UBO Elements end
+    
+    
+    public List<Object> getUboElements()
+    {
+        return new ArrayList<>(uboElements);
+    }
     
     public static int getSizeInBytes()
     {
         int size = 0;
         
         // MVC
-        size += SizeMapping.getMat4SizeInBytes();
+        for (Object elem : uboElements)
+        {
+            if (elem instanceof Matrix4f)
+            {
+                size += SizeMapping.getMat4SizeInBytes();
+            }
+        }
         
         
         return size;
