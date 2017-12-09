@@ -516,7 +516,7 @@ public class VulkanRenderer
                     
                     if (obj.getModel().getIndexBuffer().isDirty())
                     {
-                        System.out.println("The vertex buffer has not been swapped!");
+                        System.out.println("The index buffer has not been swapped!");
                     }
                     
                     Buffer        hostBuffer  = obj.getModel().getVertexBuffer().getHostBuffer();
