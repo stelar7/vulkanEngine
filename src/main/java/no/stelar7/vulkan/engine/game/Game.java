@@ -25,7 +25,7 @@ public abstract class Game
      */
     public abstract void render();
     
-    public abstract void delete();
+    public abstract void destroy();
     
     /**
      * I'm not sure if how im gonna do this yet, so stick to creating stuff in the init method for now...
@@ -40,7 +40,7 @@ public abstract class Game
         return initOk;
     }
     
-    public List<GameObject> getGameObjects()
+    public Collection<GameObject> getGameObjects()
     {
         return Collections.unmodifiableList(gameObjects);
     }

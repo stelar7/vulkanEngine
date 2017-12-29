@@ -19,12 +19,6 @@ public class TestGame extends Game
         super(renderer);
     }
     
-    @Override
-    public void update()
-    {
-        // TODO: nothing to do yet
-    }
-    
     private List<Vector3f> pos = Arrays.asList(new Vector3f(0.0f, -0.5f, 0.0f),
                                                new Vector3f(0.5f, 0.5f, 0.0f),
                                                new Vector3f(-0.5f, 0.5f, 0.0f));
@@ -46,12 +40,19 @@ public class TestGame extends Game
     @Override
     public void render()
     {
-        gameObjects.clear();
-        gameObjects.add(item);
+        // todo?
+    }
+    
+    
+    @Override
+    public void update()
+    {
+        // TODO: nothing to do yet
+        
     }
     
     @Override
-    public void delete()
+    public void destroy()
     {
         clearDepthValue.free();
         clearColorValue.free();
@@ -109,7 +110,10 @@ public class TestGame extends Game
         item = new GameObject();
         item.setModel(model);
         
+        gameObjects.add(item);
+        
         memFree(vData);
+        memFree(iData);
         
         super.init();
     }

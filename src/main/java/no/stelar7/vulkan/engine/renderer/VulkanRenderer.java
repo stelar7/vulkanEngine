@@ -153,7 +153,7 @@ public class VulkanRenderer
     {
         vkDeviceWaitIdle(deviceFamily.getDevice());
         
-        game.delete();
+        game.destroy();
         
         MemoryAllocator.getInstance().free();
         
@@ -261,7 +261,7 @@ public class VulkanRenderer
     
     private Buffer createBuffer(DeviceFamily deviceFamily, int size, int usage, int properties, boolean sparse)
     {
-        no.stelar7.vulkan.engine.buffer.Buffer buffer = new no.stelar7.vulkan.engine.buffer.Buffer();
+        Buffer buffer = new Buffer();
         buffer.setSize(size);
         
         LongBuffer handleHolder = memAllocLong(1);
@@ -297,7 +297,7 @@ public class VulkanRenderer
         }
         
         
-        // TODO: Use "size" here when alignment is taken into consideration in the allocate function
+        // TODO: Use "size" instead of "allocationSize" when alignment is taken into consideration in the allocate function
         MemoryBlock block = MemoryAllocator.getInstance().allocate(allocationSize, alignment, index);
         buffer.setMemoryBlock(block);
         
@@ -446,7 +446,7 @@ public class VulkanRenderer
         shouldRecreate = false;
     }
     
-    private VkCommandBuffer[] createRenderCommandBufffers(VkDevice device, long cmdPool, long[] framebuffers, long renderpass, int width, int height, Pipeline pipeline, long descriptorSet, List<GameObject> gameObjects)
+    private VkCommandBuffer[] createRenderCommandBufffers(VkDevice device, long cmdPool, long[] framebuffers, long renderpass, int width, int height, Pipeline pipeline, long descriptorSet, Collection<GameObject> gameObjects)
     {
         VkCommandBufferAllocateInfo allocateInfo = VkCommandBufferAllocateInfo.calloc()
                                                                               .sType(VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO)
@@ -1033,8 +1033,8 @@ public class VulkanRenderer
     
     public StagedBuffer createStagedBuffer(DeviceFamily deviceFamily, int size, int usage)
     {
-        no.stelar7.vulkan.engine.buffer.Buffer staged = createBuffer(deviceFamily, size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, false);
-        no.stelar7.vulkan.engine.buffer.Buffer used   = createBuffer(deviceFamily, size, VK_BUFFER_USAGE_TRANSFER_DST_BIT | usage, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, true);
+        Buffer staged = createBuffer(deviceFamily, size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, false);
+        Buffer used   = createBuffer(deviceFamily, size, VK_BUFFER_USAGE_TRANSFER_DST_BIT | usage, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, true);
         
         return new StagedBuffer(staged, used);
     }
@@ -1662,7 +1662,7 @@ public class VulkanRenderer
         game.update();
     }
     
-    private List<GameObject> lastObjectList = new ArrayList<>();
+    private Collection<GameObject> lastObjectList = new ArrayList<>();
     
     private void render(long imageSemaphore, LongBuffer swapchains, PointerBuffer commandBuffers, IntBuffer imageIndex, VkSubmitInfo submitInfo, VkPresentInfoKHR presentInfo)
     {
@@ -1675,7 +1675,7 @@ public class VulkanRenderer
             
             if (DEBUG_MODE)
             {
-                System.out.println("Recreating pipeline becase render objects changed.");
+                System.out.println("Recreating pipeline because render objects changed.");
             }
         }
         
