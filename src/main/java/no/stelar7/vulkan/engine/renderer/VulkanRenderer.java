@@ -8,7 +8,7 @@ import no.stelar7.vulkan.engine.game.objects.GameObject;
 import no.stelar7.vulkan.engine.memory.MemoryAllocator;
 import no.stelar7.vulkan.engine.memory.*;
 import no.stelar7.vulkan.engine.spec.*;
-import org.joml.Matrix4f;
+import org.joml.*;
 import org.lwjgl.*;
 import org.lwjgl.glfw.*;
 import org.lwjgl.system.*;
@@ -1698,9 +1698,52 @@ public class VulkanRenderer
         this.game = game;
     }
     
-    public void setClearColor(VkClearValue.Buffer clearColor)
+    public void setClearColor(ClearColor clearColor)
     {
-        this.clearColor = clearColor;
+        this.clearColor = clearColor.getClearColors();
     }
     
+    public StagedBuffer createIndexBuffer(List<Integer> indecies)
+    {
+        StagedBuffer indexBuffer = createStagedBuffer(getDeviceFamily(), indecies.size() * Integer.BYTES, VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
+        IntBuffer    iData       = memAllocInt(indecies.size());
+        for (int i = 0; i < indecies.size(); i++)
+        {
+            iData.put(i, indecies.get(i));
+        }
+        
+        setIntBufferData(indexBuffer, iData);
+        swapHostToDevice(indexBuffer);
+        memFree(iData);
+        
+        return indexBuffer;
+    }
+    
+    public StagedBuffer createVertexBuffer(List<Vector3f> pos, List<Vector4f> color)
+    {
+        StagedBuffer vertexBuffer = createStagedBuffer(getDeviceFamily(), pos.size() * Float.BYTES, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+        
+        int         size  = 3 + 4;
+        FloatBuffer vData = memAllocFloat(pos.size() * size);
+        for (int i = 0; i < pos.size(); i++)
+        {
+            Vector3f loc = pos.get(i);
+            Vector4f col = color.get(i);
+            
+            vData.put((i * size) + 0, loc.x());
+            vData.put((i * size) + 1, loc.y());
+            vData.put((i * size) + 2, loc.z());
+            
+            vData.put((i * size) + 3, col.x());
+            vData.put((i * size) + 4, col.y());
+            vData.put((i * size) + 5, col.z());
+            vData.put((i * size) + 6, col.w());
+        }
+        
+        setFloatBufferData(vertexBuffer, vData);
+        swapHostToDevice(vertexBuffer);
+        memFree(vData);
+        
+        return vertexBuffer;
+    }
 }

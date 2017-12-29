@@ -26,7 +26,7 @@ public class Model
         return indexCount;
     }
     
-    public void free(VkDevice device)
+    public void destroy(VkDevice device)
     {
         vertexBuffer.free(device);
         indexBuffer.free(device);
