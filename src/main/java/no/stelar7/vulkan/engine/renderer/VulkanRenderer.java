@@ -19,6 +19,7 @@ import java.nio.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.util.*;
+import java.util.concurrent.locks.ReentrantLock;
 
 import static org.lwjgl.glfw.GLFW.*;
 import static org.lwjgl.glfw.GLFWVulkan.*;
@@ -32,26 +33,27 @@ public class VulkanRenderer
 {
     private Game game;
     
-    private final Object lock = new Object();
+    private final ReentrantLock lock = new ReentrantLock();
     private boolean shouldClose;
     
     private static final int VK_API_VERSION         = VK_MAKE_VERSION(1, 0, 3);
     private static final int VK_APPLICATION_VERSION = VK_MAKE_VERSION(0, 1, 0);
     
-    private long DEFAULT_FENCE_TIMEOUT = 100000000000L;
+    private static final long DEFAULT_FENCE_TIMEOUT = 100000000000L;
     
-    private long windowHandle            = VK_NULL_HANDLE;
-    private long surfaceHandle           = VK_NULL_HANDLE;
-    private long debugCallback           = VK_NULL_HANDLE;
-    private long commandPoolHandle       = VK_NULL_HANDLE;
-    private long renderpassHandle        = VK_NULL_HANDLE;
-    private long renderCommandPoolHandle = VK_NULL_HANDLE;
-    private long descriptorPoolHandle    = VK_NULL_HANDLE;
-    private long descriptorSetLayout     = VK_NULL_HANDLE;
-    private long descriptorSetHandle     = VK_NULL_HANDLE;
+    private long windowHandle;
+    private long surfaceHandle;
+    private long debugCallback;
+    private long commandPoolHandle;
+    private long renderpassHandle;
+    private long renderCommandPoolHandle;
+    private long descriptorPoolHandle;
+    private long descriptorSetLayout;
+    private long descriptorSetHandle;
     
-    private long imageAcquredSemaphore   = VK_NULL_HANDLE;
-    private long renderCompleteSemaphore = VK_NULL_HANDLE;
+    private long imageAcquredSemaphore;
+    private long renderCompleteSemaphore;
+    
     
     private VkInstance       instance;
     private VkPhysicalDevice physicalDevice;
@@ -67,9 +69,8 @@ public class VulkanRenderer
     private Swapchain         swapchain;
     private long[]            framebuffers;
     private VkCommandBuffer[] renderCommandBuffers;
+    private VkCommandBuffer   screenshotCommandBuffer;
     private DepthStencil      depthStencil;
-    
-    private boolean shouldRecreate = false;
     
     private int width;
     private int height;
@@ -128,12 +129,9 @@ public class VulkanRenderer
                 return;
             }
             
-            synchronized (lock)
-            {
-                shouldRecreate = true;
-                VulkanRenderer.this.width = width;
-                VulkanRenderer.this.height = height;
-            }
+            VulkanRenderer.this.width = width;
+            VulkanRenderer.this.height = height;
+            shouldRecreate = true;
         }
     };
     
@@ -152,15 +150,14 @@ public class VulkanRenderer
             glfwWaitEvents();
         }
         
-        synchronized (lock)
-        {
-            destroy();
-        }
+        lock.lock();
+        destroy();
+        lock.unlock();
     }
     
     private void destroy()
     {
-        vkDeviceWaitIdle(deviceFamily.getDevice());
+        EngineUtils.checkError(vkDeviceWaitIdle(deviceFamily.getDevice()));
         
         game.destroy();
         
@@ -263,7 +260,7 @@ public class VulkanRenderer
         EngineUtils.checkError(vkEndCommandBuffer(setupCommandBuffer));
         
         submitCommandBuffer(deviceQueue, setupCommandBuffer);
-        vkQueueWaitIdle(deviceQueue);
+        EngineUtils.checkError(vkQueueWaitIdle(deviceQueue));
         
         buffer.setDirty(false);
     }
@@ -392,7 +389,8 @@ public class VulkanRenderer
     
     private void recreateSwapchain()
     {
-        
+        lock.lock();
+        EngineUtils.checkError(vkDeviceWaitIdle(deviceFamily.getDevice()));
         
         VkSurfaceCapabilitiesKHR surfaceCapabilities = VkSurfaceCapabilitiesKHR.calloc();
         EngineUtils.checkError(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice, surfaceHandle, surfaceCapabilities));
@@ -408,8 +406,6 @@ public class VulkanRenderer
             return;
         }
         
-        
-        vkDeviceWaitIdle(deviceFamily.getDevice());
         
         VkCommandBufferBeginInfo beginInfo = VkCommandBufferBeginInfo.calloc()
                                                                      .sType(VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO);
@@ -433,7 +429,7 @@ public class VulkanRenderer
         
         EngineUtils.checkError(vkEndCommandBuffer(setupCommandBuffer));
         submitCommandBuffer(deviceQueue, setupCommandBuffer);
-        vkQueueWaitIdle(deviceQueue);
+        EngineUtils.checkError(vkQueueWaitIdle(deviceQueue));
         
         if (framebuffers != null)
         {
@@ -449,10 +445,11 @@ public class VulkanRenderer
         {
             vkResetCommandPool(deviceFamily.getDevice(), renderCommandPoolHandle, 0);
         }
-        
         renderCommandBuffers = createRenderCommandBufffers(deviceFamily.getDevice(), renderCommandPoolHandle, framebuffers, renderpassHandle, width, height, pipeline, descriptorSetHandle, game.getGameObjects());
+        screenshotCommandBuffer = createCommandBuffer(deviceFamily.getDevice(), commandPoolHandle);
         
         shouldRecreate = false;
+        lock.unlock();
     }
     
     private VkCommandBuffer[] createRenderCommandBufffers(VkDevice device, long cmdPool, long[] framebuffers, long renderpass, int width, int height, Pipeline pipeline, long descriptorSet, Collection<GameObject> gameObjects)
@@ -610,14 +607,22 @@ public class VulkanRenderer
     private void submitCommandBuffer(VkQueue deviceQueue, VkCommandBuffer cmdBuffer)
     {
         PointerBuffer buffer = memAllocPointer(1).put(0, cmdBuffer);
-        
         VkSubmitInfo submitInfo = VkSubmitInfo.calloc()
                                               .sType(VK_STRUCTURE_TYPE_SUBMIT_INFO)
                                               .pCommandBuffers(buffer);
         
-        EngineUtils.checkError(vkQueueSubmit(deviceQueue, submitInfo, VK_NULL_HANDLE));
+        VkFenceCreateInfo fenceInfo = VkFenceCreateInfo.calloc().sType(VK_STRUCTURE_TYPE_FENCE_CREATE_INFO);
+        LongBuffer        fence     = memAllocLong(1);
         
+        EngineUtils.checkError(vkCreateFence(deviceFamily.getDevice(), fenceInfo, null, fence));
+        EngineUtils.checkError(vkQueueSubmit(deviceQueue, submitInfo, fence.get(0)));
+        EngineUtils.checkError(vkWaitForFences(deviceFamily.getDevice(), fence, true, DEFAULT_FENCE_TIMEOUT));
+        
+        vkDestroyFence(deviceFamily.getDevice(), fence.get(0), null);
+        
+        memFree(fence);
         memFree(buffer);
+        fenceInfo.free();
         submitInfo.free();
     }
     
@@ -1596,7 +1601,6 @@ public class VulkanRenderer
                                                        .pImageIndices(imageIndex)
                                                        .pSwapchains(swapchains);
         
-        
         int   updatesPerSecond = 60;
         int   maxFramesSkipped = 20;
         float skipInterval     = 1000f / updatesPerSecond;
@@ -1608,7 +1612,6 @@ public class VulkanRenderer
         
         double timer    = System.currentTimeMillis();
         long   fpstimer = System.currentTimeMillis();
-        
         while (!shouldClose)
         {
             
@@ -1633,30 +1636,22 @@ public class VulkanRenderer
                 }
             }
             
-            synchronized (lock)
-            {
-                if (shouldRecreate)
-                {
-                    recreateSwapchain();
-                }
-            }
             
             render(imageSemaphore.get(0), swapchains, commandBuffers, imageIndex, submitInfo, presentInfo);
             fps++;
             
-            synchronized (lock)
-            {
-                shouldClose = glfwWindowShouldClose(windowHandle);
-            }
+            lock.lock();
+            shouldClose = glfwWindowShouldClose(windowHandle);
+            lock.unlock();
         }
         
         
         memFree(renderSemaphore);
         memFree(imageSemaphore);
         commandBuffers.free();
-        presentInfo.free();
         memFree(swapchains);
         memFree(imageIndex);
+        presentInfo.free();
         memFree(waitMask);
         submitInfo.free();
     }
@@ -1672,6 +1667,7 @@ public class VulkanRenderer
     }
     
     private Collection<GameObject> lastObjectList = new ArrayList<>();
+    private boolean                shouldRecreate = false;
     
     private void render(long imageSemaphore, LongBuffer swapchains, PointerBuffer commandBuffers, IntBuffer imageIndex, VkSubmitInfo submitInfo, VkPresentInfoKHR presentInfo)
     {
@@ -1680,12 +1676,17 @@ public class VulkanRenderer
         if (!lastObjectList.equals(game.getGameObjects()))
         {
             lastObjectList = game.getGameObjects();
-            shouldRecreate = true;
             
             if (DEBUG_MODE)
             {
                 System.out.println("Recreating pipeline because render objects changed.");
             }
+        }
+        
+        if (shouldRecreate)
+        {
+            recreateSwapchain();
+            return;
         }
         
         EngineUtils.checkError(vkAcquireNextImageKHR(deviceFamily.getDevice(), swapchain.getHandle(), Long.MAX_VALUE, imageSemaphore, VK_NULL_HANDLE, imageIndex));
@@ -1695,10 +1696,14 @@ public class VulkanRenderer
         EngineUtils.checkError(vkQueueSubmit(deviceQueue, submitInfo, VK_NULL_HANDLE));
         
         swapchains.put(0, swapchain.getHandle());
-        EngineUtils.checkError(vkQueuePresentKHR(deviceQueue, presentInfo));
-        
-        vkQueueWaitIdle(deviceQueue);
-        
+        //EngineUtils.checkError(vkQueuePresentKHR(deviceQueue, presentInfo));
+        int result = (vkQueuePresentKHR(deviceQueue, presentInfo));
+        if (result == VK_ERROR_OUT_OF_DATE_KHR)
+        {
+            shouldRecreate = true;
+            return;
+        }
+        EngineUtils.checkError(vkQueueWaitIdle(deviceQueue));
         postPresentBarrier(swapchain.getImage(index), postPresentCommandBuffer, deviceQueue);
     }
     
@@ -1764,12 +1769,14 @@ public class VulkanRenderer
         vkGetPhysicalDeviceFormatProperties(physicalDevice, colorAndDepthFormat.getColorFormat(), properties);
         if (!EngineUtils.hasFlag(properties.optimalTilingFeatures(), VK_FORMAT_FEATURE_BLIT_SRC_BIT))
         {
+            System.out.println("Device does not support blitting from optimal tiled images, using copy instead of blit!");
             blitSupport = false;
         }
         
         vkGetPhysicalDeviceFormatProperties(physicalDevice, VK_FORMAT_R8G8B8A8_UNORM, properties);
-        if (!EngineUtils.hasFlag(properties.optimalTilingFeatures(), VK_FORMAT_FEATURE_BLIT_SRC_BIT))
+        if (!EngineUtils.hasFlag(properties.optimalTilingFeatures(), VK_FORMAT_FEATURE_BLIT_DST_BIT))
         {
+            System.out.println("Device does not support blitting to linear tiled images, using copy instead of blit!");
             blitSupport = false;
         }
         
@@ -1794,22 +1801,21 @@ public class VulkanRenderer
                                                         .usage(VK_IMAGE_USAGE_TRANSFER_DST_BIT);
         
         
-        LongBuffer dest = memAllocLong(1);
-        EngineUtils.checkError(vkCreateImage(deviceFamily.getDevice(), createInfo, null, dest));
+        LongBuffer longBuff = memAllocLong(1);
+        EngineUtils.checkError(vkCreateImage(deviceFamily.getDevice(), createInfo, null, longBuff));
+        long dstImage = longBuff.get(0);
+        memFree(longBuff);
         
         
         VkMemoryRequirements requirements = VkMemoryRequirements.calloc();
-        vkGetImageMemoryRequirements(deviceFamily.getDevice(), dest.get(0), requirements);
-        int  index          = EngineUtils.findMemoryTypeIndex(deviceFamily.getMemoryProperties(), requirements, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-        long allocationSize = requirements.size();
+        vkGetImageMemoryRequirements(deviceFamily.getDevice(), dstImage, requirements);
+        int         index       = EngineUtils.findMemoryTypeIndex(deviceFamily.getMemoryProperties(), requirements, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+        MemoryBlock memoryBlock = MemoryAllocator.getInstance().allocate(requirements.size(), requirements.alignment(), index);
+        EngineUtils.checkError(vkBindImageMemory(deviceFamily.getDevice(), dstImage, memoryBlock.getMemory(), memoryBlock.getOffset()));
+        EngineUtils.checkError(vkResetCommandBuffer(screenshotCommandBuffer, 0));
         
-        MemoryBlock memoryBlock = MemoryAllocator.getInstance().allocate(allocationSize, requirements.alignment(), index);
-        EngineUtils.checkError(vkBindImageMemory(deviceFamily.getDevice(), dest.get(0), memoryBlock.getMemory(), memoryBlock.getOffset()));
-        
-        VkCommandBuffer copy = createCommandBuffer(deviceFamily.getDevice(), commandPoolHandle);
-        
-        imageBarrier(copy,
-                     dest.get(0),
+        imageBarrier(screenshotCommandBuffer,
+                     dstImage,
                      VK_IMAGE_ASPECT_COLOR_BIT,
                      0,
                      VK_ACCESS_TRANSFER_WRITE_BIT,
@@ -1819,7 +1825,7 @@ public class VulkanRenderer
                      VK_PIPELINE_STAGE_TRANSFER_BIT
                     );
         
-        imageBarrier(copy,
+        imageBarrier(screenshotCommandBuffer,
                      source,
                      VK_IMAGE_ASPECT_COLOR_BIT,
                      VK_ACCESS_MEMORY_READ_BIT,
@@ -1840,15 +1846,15 @@ public class VulkanRenderer
         VkImageCopy.Buffer copyRegion = VkImageCopy.calloc(1).srcSubresource(srcLayer).dstSubresource(destLayer).extent(extent);
         if (blitSupport)
         {
-            vkCmdBlitImage(copy, source, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dest.get(0), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, blitRegion, VK_FILTER_NEAREST);
+            vkCmdBlitImage(screenshotCommandBuffer, source, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dstImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, blitRegion, VK_FILTER_NEAREST);
         } else
         {
-            vkCmdCopyImage(copy, source, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dest.get(0), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, copyRegion);
+            vkCmdCopyImage(screenshotCommandBuffer, source, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dstImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, copyRegion);
         }
         
         
-        imageBarrier(copy,
-                     dest.get(0),
+        imageBarrier(screenshotCommandBuffer,
+                     dstImage,
                      VK_IMAGE_ASPECT_COLOR_BIT,
                      VK_ACCESS_TRANSFER_WRITE_BIT,
                      VK_ACCESS_MEMORY_READ_BIT,
@@ -1858,7 +1864,7 @@ public class VulkanRenderer
                      VK_PIPELINE_STAGE_TRANSFER_BIT
                     );
         
-        imageBarrier(copy,
+        imageBarrier(screenshotCommandBuffer,
                      source,
                      VK_IMAGE_ASPECT_COLOR_BIT,
                      VK_ACCESS_TRANSFER_READ_BIT,
@@ -1869,31 +1875,20 @@ public class VulkanRenderer
                      VK_PIPELINE_STAGE_TRANSFER_BIT
                     );
         
-        EngineUtils.checkError(vkEndCommandBuffer(copy));
+        EngineUtils.checkError(vkEndCommandBuffer(screenshotCommandBuffer));
         
-        PointerBuffer buffer = memAllocPointer(1).put(0, copy);
-        VkSubmitInfo submitInfo = VkSubmitInfo.calloc()
-                                              .sType(VK_STRUCTURE_TYPE_SUBMIT_INFO)
-                                              .pCommandBuffers(buffer);
-        
-        
-        VkFenceCreateInfo fenceInfo = VkFenceCreateInfo.calloc().sType(VK_STRUCTURE_TYPE_FENCE_CREATE_INFO);
-        LongBuffer        fence     = memAllocLong(1);
-        
-        EngineUtils.checkError(vkCreateFence(deviceFamily.getDevice(), fenceInfo, null, fence));
-        EngineUtils.checkError(vkQueueSubmit(deviceQueue, submitInfo, fence.get(0)));
-        EngineUtils.checkError(vkWaitForFences(deviceFamily.getDevice(), fence, true, DEFAULT_FENCE_TIMEOUT));
-        
-        vkDestroyFence(deviceFamily.getDevice(), fence.get(0), null);
-        vkFreeCommandBuffers(deviceFamily.getDevice(), commandPoolHandle, buffer);
-        
+        submitCommandBuffer(deviceQueue, screenshotCommandBuffer);
         
         VkImageSubresource  subResource       = VkImageSubresource.calloc().aspectMask(VK_IMAGE_ASPECT_COLOR_BIT);
         VkSubresourceLayout subResourceLayout = VkSubresourceLayout.calloc();
-        vkGetImageSubresourceLayout(deviceFamily.getDevice(), dest.get(0), subResource, subResourceLayout);
+        vkGetImageSubresourceLayout(deviceFamily.getDevice(), dstImage, subResource, subResourceLayout);
         
         PointerBuffer pointerBuffer = memAllocPointer(1);
         EngineUtils.checkError(vkMapMemory(deviceFamily.getDevice(), memoryBlock.getMemory(), memoryBlock.getOffset(), memoryBlock.getSize(), 0, pointerBuffer));
+        long pointer = pointerBuffer.get();
+        memFree(pointerBuffer);
+        
+        FloatBuffer data = memFloatBuffer(pointer, width * height);
         
         boolean swizzle = false;
         if (!blitSupport)
@@ -1901,8 +1896,6 @@ public class VulkanRenderer
             List<Integer> bgrFormats = Arrays.asList(VK_FORMAT_B8G8R8A8_SRGB, VK_FORMAT_B8G8R8A8_UNORM, VK_FORMAT_B8G8R8A8_SNORM);
             swizzle = bgrFormats.contains(colorAndDepthFormat.getColorFormat());
         }
-        
-        IntBuffer ibuff = pointerBuffer.getIntBuffer((int) (width * height + subResourceLayout.offset()));
         
         try (BufferedWriter bw = Files.newBufferedWriter(output, StandardCharsets.UTF_8))
         {
@@ -1920,19 +1913,20 @@ public class VulkanRenderer
             {
                 for (int x = 0; x < width; x++)
                 {
-                    helper.putInt(0, ibuff.get());
+                    helper.putFloat(0, data.get());
                     
-                    if (swizzle)
-                    {
-                        bw.append(helper.getChar(2));
-                        bw.append(helper.getChar(1));
-                        bw.append(helper.getChar(0));
-                    } else
-                    {
-                        bw.append(helper.getChar(0));
-                        bw.append(helper.getChar(1));
-                        bw.append(helper.getChar(2));
-                    }
+                    System.out.println();
+//                    if (swizzle)
+//                    {
+//                        bw.append(helper.getChar(2));
+//                        bw.append(helper.getChar(1));
+//                        bw.append(helper.getChar(0));
+//                    } else
+//                    {
+//                        bw.append(helper.getChar(0));
+//                        bw.append(helper.getChar(1));
+//                        bw.append(helper.getChar(2));
+//                    }
                 }
                 bw.newLine();
             }
@@ -1941,17 +1935,13 @@ public class VulkanRenderer
             e.printStackTrace();
         }
         
-        vkUnmapMemory(deviceFamily.getDevice(), memoryBlock.getMemory());
-        vkDestroyImage(deviceFamily.getDevice(), dest.get(0), null);
+        memoryBlock.free(deviceFamily.getDevice());
+        vkDestroyImage(deviceFamily.getDevice(), dstImage, null);
         
         extent.free();
-        memFree(dest);
-        memFree(fence);
         blitSize.free();
         srcLayer.free();
-        memFree(buffer);
         destLayer.free();
-        fenceInfo.free();
         blitRegion.free();
         copyRegion.free();
         properties.free();

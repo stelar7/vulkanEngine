@@ -45,7 +45,7 @@ public class MemoryChunk
         block.setMemory(memory);
         block.setOffset(0);
         block.setSize(size);
-        block.setFree(true);
+        block.free(device);
         
         blocks.add(block);
     }
@@ -57,7 +57,7 @@ public class MemoryChunk
     
     public void deallocate(MemoryBlock block)
     {
-        blocks.stream().filter(a -> a.equals(block)).findFirst().ifPresent(memoryBlock -> memoryBlock.setFree(true));
+        blocks.stream().filter(a -> a.equals(block)).findFirst().ifPresent(memoryBlock -> memoryBlock.free(device));
     }
     
     public MemoryBlock allocate(long requestSize, long alignment)
@@ -92,7 +92,7 @@ public class MemoryChunk
                 {
                     if (currentBlock.getSize() == requestSize)
                     {
-                        currentBlock.setFree(false);
+                        currentBlock.take();
                         return currentBlock;
                     }
                     
@@ -101,11 +101,11 @@ public class MemoryChunk
                     nextBlock.setSize(currentBlock.getSize() - requestSize);
                     nextBlock.setOffset(currentBlock.getOffset() + requestSize);
                     nextBlock.setMemory(memory);
-                    nextBlock.setFree(true);
+                    nextBlock.free(device);
                     blocks.add(nextBlock);
                     
                     currentBlock.setSize(requestSize);
-                    currentBlock.setFree(false);
+                    currentBlock.take();
                     
                     return currentBlock;
                 }

@@ -1,5 +1,9 @@
 package no.stelar7.vulkan.engine.memory;
 
+import org.lwjgl.vulkan.*;
+
+import static org.lwjgl.vulkan.VK10.*;
+
 public class MemoryBlock
 {
     private long    memory;
@@ -35,12 +39,6 @@ public class MemoryBlock
     public void setSize(long sizeInBytes)
     {
         this.size = sizeInBytes;
-    }
-    
-    
-    public void setFree(boolean flag)
-    {
-        this.free = flag;
     }
     
     public boolean isFree()
@@ -85,5 +83,16 @@ public class MemoryBlock
         result = 31 * result + (free ? 1 : 0);
         result = 31 * result + (int) (size ^ (size >>> 32));
         return result;
+    }
+    
+    public void take()
+    {
+        free = false;
+    }
+    
+    public void free(VkDevice device)
+    {
+        vkUnmapMemory(device, memory);
+        free = true;
     }
 }
