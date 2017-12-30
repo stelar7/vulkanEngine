@@ -252,7 +252,8 @@ public final class EngineUtils
         
         while (data.remaining() > 0)
         {
-            result.append(data.get()).append(", ");
+            float val = data.get();
+            result.append(val).append(", ");
         }
         
         result.reverse().deleteCharAt(0).deleteCharAt(0).reverse().append(")");
@@ -269,7 +270,8 @@ public final class EngineUtils
         
         while (data.remaining() > 0)
         {
-            result.append(data.get()).append(", ");
+            int val = data.get();
+            result.append(val).append(", ");
         }
         
         result.reverse().deleteCharAt(0).deleteCharAt(0).reverse().append(")");

@@ -14,7 +14,10 @@ import org.lwjgl.glfw.*;
 import org.lwjgl.system.*;
 import org.lwjgl.vulkan.*;
 
+import java.io.*;
 import java.nio.*;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.*;
 import java.util.*;
 
 import static org.lwjgl.glfw.GLFW.*;
@@ -34,6 +37,8 @@ public class VulkanRenderer
     
     private static final int VK_API_VERSION         = VK_MAKE_VERSION(1, 0, 3);
     private static final int VK_APPLICATION_VERSION = VK_MAKE_VERSION(0, 1, 0);
+    
+    private long DEFAULT_FENCE_TIMEOUT = 100000000000L;
     
     private long windowHandle            = VK_NULL_HANDLE;
     private long surfaceHandle           = VK_NULL_HANDLE;
@@ -105,6 +110,10 @@ public class VulkanRenderer
             if (key == GLFW_KEY_ESCAPE)
             {
                 glfwSetWindowShouldClose(window, true);
+            }
+            if (key == GLFW_KEY_SPACE)
+            {
+                saveScreenshot(Paths.get("C:\\Dropbox", "screenshot.ppm"));
             }
         }
     };
@@ -358,7 +367,7 @@ public class VulkanRenderer
         int srcAccess = VK_ACCESS_MEMORY_READ_BIT;
         int dstAccess = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
         
-        imageBarrier(buffer, image, srcStage, dstStage, mask, srcLayout, srcAccess, dstLayout, dstAccess);
+        imageBarrier(buffer, image, mask, srcAccess, dstAccess, srcLayout, dstLayout, srcStage, dstStage);
         
         EngineUtils.checkError(vkEndCommandBuffer(buffer));
         submitCommandBuffer(queue, buffer);
@@ -553,7 +562,7 @@ public class VulkanRenderer
             int srcAccess = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
             int dstAccess = VK_ACCESS_MEMORY_READ_BIT;
             
-            imageBarrier(renderBuffer, swapchain.getImage(i), srcStage, dstStage, mask, srcLayout, srcAccess, dstLayout, dstAccess);
+            imageBarrier(renderBuffer, swapchain.getImage(i), mask, srcAccess, dstAccess, srcLayout, dstLayout, srcStage, dstStage);
             
             EngineUtils.checkError(vkEndCommandBuffer(renderBuffer));
         }
@@ -606,7 +615,7 @@ public class VulkanRenderer
                                               .sType(VK_STRUCTURE_TYPE_SUBMIT_INFO)
                                               .pCommandBuffers(buffer);
         
-        EngineUtils.checkError(vkQueueSubmit(deviceQueue, submitInfo, 0));
+        EngineUtils.checkError(vkQueueSubmit(deviceQueue, submitInfo, VK_NULL_HANDLE));
         
         memFree(buffer);
         submitInfo.free();
@@ -672,7 +681,7 @@ public class VulkanRenderer
         // vkBindImageMemory(deviceFamily.getDevice(), stencil.getImage(), stencil.getMemoryBlock().getMemory(), stencil.getMemoryBlock().getOffset());
         
         int stage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
-        imageBarrier(buffer, stencil.getImage(), stage, stage, mask, VK_IMAGE_LAYOUT_UNDEFINED, 0, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT);
+        imageBarrier(buffer, stencil.getImage(), mask, 0, VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, stage, stage);
         
         
         VkImageViewCreateInfo viewCreateInfo = VkImageViewCreateInfo.calloc()
@@ -836,7 +845,7 @@ public class VulkanRenderer
         for (int i = 0; i < imageCount; i++)
         {
             images[i] = swapImages.get(i);
-            imageBarrier(buffer, images[i], stage, stage, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED, 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
+            imageBarrier(buffer, images[i], VK_IMAGE_ASPECT_COLOR_BIT, 0, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, stage, stage);
             viewCreateInfo.image(images[i]);
             EngineUtils.checkError(vkCreateImageView(device, viewCreateInfo, null, handleHolder));
             views[i] = handleHolder.get(0);
@@ -852,7 +861,7 @@ public class VulkanRenderer
         return localChain;
     }
     
-    private void imageBarrier(VkCommandBuffer buffer, long image, int srcStage, int dstStage, int mask, int oldLayout, int srcAccess, int newLayout, int dstAccess)
+    private void imageBarrier(VkCommandBuffer buffer, long image, int mask, int srcAccess, int dstAccess, int oldLayout, int newLayout, int srcStage, int dstStage)
     {
         VkImageMemoryBarrier.Buffer barriers = VkImageMemoryBarrier.calloc(1)
                                                                    .sType(VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER)
@@ -1745,5 +1754,211 @@ public class VulkanRenderer
         memFree(vData);
         
         return vertexBuffer;
+    }
+    
+    public void saveScreenshot(Path output)
+    {
+        boolean blitSupport = true;
+        
+        VkFormatProperties properties = VkFormatProperties.calloc();
+        vkGetPhysicalDeviceFormatProperties(physicalDevice, colorAndDepthFormat.getColorFormat(), properties);
+        if (!EngineUtils.hasFlag(properties.optimalTilingFeatures(), VK_FORMAT_FEATURE_BLIT_SRC_BIT))
+        {
+            blitSupport = false;
+        }
+        
+        vkGetPhysicalDeviceFormatProperties(physicalDevice, VK_FORMAT_R8G8B8A8_UNORM, properties);
+        if (!EngineUtils.hasFlag(properties.optimalTilingFeatures(), VK_FORMAT_FEATURE_BLIT_SRC_BIT))
+        {
+            blitSupport = false;
+        }
+        
+        long source = swapchain.getImage(0);
+        
+        VkExtent3D extent = VkExtent3D.calloc()
+                                      .height(height)
+                                      .width(width)
+                                      .depth(1);
+        
+        
+        VkImageCreateInfo createInfo = VkImageCreateInfo.calloc()
+                                                        .sType(VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO)
+                                                        .imageType(VK_IMAGE_TYPE_2D)
+                                                        .format(VK_FORMAT_R8G8B8A8_UNORM)
+                                                        .extent(extent)
+                                                        .arrayLayers(1)
+                                                        .mipLevels(1)
+                                                        .initialLayout(VK_IMAGE_LAYOUT_UNDEFINED)
+                                                        .samples(VK_SAMPLE_COUNT_1_BIT)
+                                                        .tiling(VK_IMAGE_TILING_LINEAR)
+                                                        .usage(VK_IMAGE_USAGE_TRANSFER_DST_BIT);
+        
+        
+        LongBuffer dest = memAllocLong(1);
+        EngineUtils.checkError(vkCreateImage(deviceFamily.getDevice(), createInfo, null, dest));
+        
+        
+        VkMemoryRequirements requirements = VkMemoryRequirements.calloc();
+        vkGetImageMemoryRequirements(deviceFamily.getDevice(), dest.get(0), requirements);
+        int  index          = EngineUtils.findMemoryTypeIndex(deviceFamily.getMemoryProperties(), requirements, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+        long allocationSize = requirements.size();
+        
+        MemoryBlock memoryBlock = MemoryAllocator.getInstance().allocate(allocationSize, requirements.alignment(), index);
+        EngineUtils.checkError(vkBindImageMemory(deviceFamily.getDevice(), dest.get(0), memoryBlock.getMemory(), memoryBlock.getOffset()));
+        
+        VkCommandBuffer copy = createCommandBuffer(deviceFamily.getDevice(), commandPoolHandle);
+        
+        imageBarrier(copy,
+                     dest.get(0),
+                     VK_IMAGE_ASPECT_COLOR_BIT,
+                     0,
+                     VK_ACCESS_TRANSFER_WRITE_BIT,
+                     VK_IMAGE_LAYOUT_UNDEFINED,
+                     VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                     VK_PIPELINE_STAGE_TRANSFER_BIT,
+                     VK_PIPELINE_STAGE_TRANSFER_BIT
+                    );
+        
+        imageBarrier(copy,
+                     source,
+                     VK_IMAGE_ASPECT_COLOR_BIT,
+                     VK_ACCESS_MEMORY_READ_BIT,
+                     VK_ACCESS_TRANSFER_READ_BIT,
+                     VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+                     VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                     VK_PIPELINE_STAGE_TRANSFER_BIT,
+                     VK_PIPELINE_STAGE_TRANSFER_BIT
+                    );
+        
+        VkImageSubresourceLayers srcLayer  = VkImageSubresourceLayers.calloc().aspectMask(VK_IMAGE_ASPECT_COLOR_BIT).layerCount(1);
+        VkImageSubresourceLayers destLayer = VkImageSubresourceLayers.calloc().aspectMask(VK_IMAGE_ASPECT_COLOR_BIT).layerCount(1);
+        
+        // should this be 0 and 0 or 0 and 1 instead of 1 and 1 for the offsets index?
+        VkOffset3D         blitSize   = VkOffset3D.calloc().x(width).y(height).z(1);
+        VkImageBlit.Buffer blitRegion = VkImageBlit.calloc(1).srcSubresource(srcLayer).srcOffsets(0, blitSize).dstSubresource(destLayer).dstOffsets(0, blitSize);
+        
+        VkImageCopy.Buffer copyRegion = VkImageCopy.calloc(1).srcSubresource(srcLayer).dstSubresource(destLayer).extent(extent);
+        if (blitSupport)
+        {
+            vkCmdBlitImage(copy, source, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dest.get(0), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, blitRegion, VK_FILTER_NEAREST);
+        } else
+        {
+            vkCmdCopyImage(copy, source, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dest.get(0), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, copyRegion);
+        }
+        
+        
+        imageBarrier(copy,
+                     dest.get(0),
+                     VK_IMAGE_ASPECT_COLOR_BIT,
+                     VK_ACCESS_TRANSFER_WRITE_BIT,
+                     VK_ACCESS_MEMORY_READ_BIT,
+                     VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                     VK_IMAGE_LAYOUT_GENERAL,
+                     VK_PIPELINE_STAGE_TRANSFER_BIT,
+                     VK_PIPELINE_STAGE_TRANSFER_BIT
+                    );
+        
+        imageBarrier(copy,
+                     source,
+                     VK_IMAGE_ASPECT_COLOR_BIT,
+                     VK_ACCESS_TRANSFER_READ_BIT,
+                     VK_ACCESS_MEMORY_READ_BIT,
+                     VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                     VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+                     VK_PIPELINE_STAGE_TRANSFER_BIT,
+                     VK_PIPELINE_STAGE_TRANSFER_BIT
+                    );
+        
+        EngineUtils.checkError(vkEndCommandBuffer(copy));
+        
+        PointerBuffer buffer = memAllocPointer(1).put(0, copy);
+        VkSubmitInfo submitInfo = VkSubmitInfo.calloc()
+                                              .sType(VK_STRUCTURE_TYPE_SUBMIT_INFO)
+                                              .pCommandBuffers(buffer);
+        
+        
+        VkFenceCreateInfo fenceInfo = VkFenceCreateInfo.calloc().sType(VK_STRUCTURE_TYPE_FENCE_CREATE_INFO);
+        LongBuffer        fence     = memAllocLong(1);
+        
+        EngineUtils.checkError(vkCreateFence(deviceFamily.getDevice(), fenceInfo, null, fence));
+        EngineUtils.checkError(vkQueueSubmit(deviceQueue, submitInfo, fence.get(0)));
+        EngineUtils.checkError(vkWaitForFences(deviceFamily.getDevice(), fence, true, DEFAULT_FENCE_TIMEOUT));
+        
+        vkDestroyFence(deviceFamily.getDevice(), fence.get(0), null);
+        vkFreeCommandBuffers(deviceFamily.getDevice(), commandPoolHandle, buffer);
+        
+        
+        VkImageSubresource  subResource       = VkImageSubresource.calloc().aspectMask(VK_IMAGE_ASPECT_COLOR_BIT);
+        VkSubresourceLayout subResourceLayout = VkSubresourceLayout.calloc();
+        vkGetImageSubresourceLayout(deviceFamily.getDevice(), dest.get(0), subResource, subResourceLayout);
+        
+        PointerBuffer pointerBuffer = memAllocPointer(1);
+        EngineUtils.checkError(vkMapMemory(deviceFamily.getDevice(), memoryBlock.getMemory(), memoryBlock.getOffset(), memoryBlock.getSize(), 0, pointerBuffer));
+        
+        boolean swizzle = false;
+        if (!blitSupport)
+        {
+            List<Integer> bgrFormats = Arrays.asList(VK_FORMAT_B8G8R8A8_SRGB, VK_FORMAT_B8G8R8A8_UNORM, VK_FORMAT_B8G8R8A8_SNORM);
+            swizzle = bgrFormats.contains(colorAndDepthFormat.getColorFormat());
+        }
+        
+        IntBuffer ibuff = pointerBuffer.getIntBuffer((int) (width * height + subResourceLayout.offset()));
+        
+        try (BufferedWriter bw = Files.newBufferedWriter(output, StandardCharsets.UTF_8))
+        {
+            bw.append("P6")
+              .append("\n")
+              .append(String.valueOf(width))
+              .append("\n")
+              .append(String.valueOf(height))
+              .append("\n")
+              .append(String.valueOf(255))
+              .append("\n");
+            
+            ByteBuffer helper = ByteBuffer.allocate(4);
+            for (int y = 0; y < height; y++)
+            {
+                for (int x = 0; x < width; x++)
+                {
+                    helper.putInt(0, ibuff.get());
+                    
+                    if (swizzle)
+                    {
+                        bw.append(helper.getChar(2));
+                        bw.append(helper.getChar(1));
+                        bw.append(helper.getChar(0));
+                    } else
+                    {
+                        bw.append(helper.getChar(0));
+                        bw.append(helper.getChar(1));
+                        bw.append(helper.getChar(2));
+                    }
+                }
+                bw.newLine();
+            }
+        } catch (IOException e)
+        {
+            e.printStackTrace();
+        }
+        
+        vkUnmapMemory(deviceFamily.getDevice(), memoryBlock.getMemory());
+        vkDestroyImage(deviceFamily.getDevice(), dest.get(0), null);
+        
+        extent.free();
+        memFree(dest);
+        memFree(fence);
+        blitSize.free();
+        srcLayer.free();
+        memFree(buffer);
+        destLayer.free();
+        fenceInfo.free();
+        blitRegion.free();
+        copyRegion.free();
+        properties.free();
+        createInfo.free();
+        subResource.free();
+        requirements.free();
+        memFree(pointerBuffer);
+        subResourceLayout.free();
     }
 }
