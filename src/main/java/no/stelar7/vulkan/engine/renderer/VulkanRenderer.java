@@ -14,9 +14,7 @@ import org.lwjgl.glfw.*;
 import org.lwjgl.system.*;
 import org.lwjgl.vulkan.*;
 
-import java.io.*;
 import java.nio.*;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.util.*;
 import java.util.concurrent.locks.ReentrantLock;
@@ -69,7 +67,6 @@ public class VulkanRenderer
     private Swapchain         swapchain;
     private long[]            framebuffers;
     private VkCommandBuffer[] renderCommandBuffers;
-    private VkCommandBuffer   screenshotCommandBuffer;
     private DepthStencil      depthStencil;
     
     private int width;
@@ -114,7 +111,9 @@ public class VulkanRenderer
             }
             if (key == GLFW_KEY_SPACE)
             {
-                saveScreenshot(Paths.get("C:\\Dropbox", "screenshot.ppm"));
+                lock.lock();
+                saveScreenshotNested(Paths.get("C:\\Dropbox", "screenshot.ppm"));
+                lock.unlock();
             }
         }
     };
@@ -446,7 +445,6 @@ public class VulkanRenderer
             vkResetCommandPool(deviceFamily.getDevice(), renderCommandPoolHandle, 0);
         }
         renderCommandBuffers = createRenderCommandBufffers(deviceFamily.getDevice(), renderCommandPoolHandle, framebuffers, renderpassHandle, width, height, pipeline, descriptorSetHandle, game.getGameObjects());
-        screenshotCommandBuffer = createCommandBuffer(deviceFamily.getDevice(), commandPoolHandle);
         
         shouldRecreate = false;
         lock.unlock();
@@ -1812,7 +1810,10 @@ public class VulkanRenderer
         int         index       = EngineUtils.findMemoryTypeIndex(deviceFamily.getMemoryProperties(), requirements, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
         MemoryBlock memoryBlock = MemoryAllocator.getInstance().allocate(requirements.size(), requirements.alignment(), index);
         EngineUtils.checkError(vkBindImageMemory(deviceFamily.getDevice(), dstImage, memoryBlock.getMemory(), memoryBlock.getOffset()));
-        EngineUtils.checkError(vkResetCommandBuffer(screenshotCommandBuffer, 0));
+        
+        VkCommandBufferBeginInfo beginInfo               = VkCommandBufferBeginInfo.calloc().sType(VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO);
+        VkCommandBuffer          screenshotCommandBuffer = createCommandBuffer(deviceFamily.getDevice(), commandPoolHandle);
+        EngineUtils.checkError(vkBeginCommandBuffer(setupCommandBuffer, beginInfo));
         
         imageBarrier(screenshotCommandBuffer,
                      dstImage,
@@ -1885,10 +1886,8 @@ public class VulkanRenderer
         
         PointerBuffer pointerBuffer = memAllocPointer(1);
         EngineUtils.checkError(vkMapMemory(deviceFamily.getDevice(), memoryBlock.getMemory(), memoryBlock.getOffset(), memoryBlock.getSize(), 0, pointerBuffer));
-        long pointer = pointerBuffer.get();
+        long pointer = pointerBuffer.get(0);
         memFree(pointerBuffer);
-        
-        FloatBuffer data = memFloatBuffer(pointer, width * height);
         
         boolean swizzle = false;
         if (!blitSupport)
@@ -1897,58 +1896,189 @@ public class VulkanRenderer
             swizzle = bgrFormats.contains(colorAndDepthFormat.getColorFormat());
         }
         
-        try (BufferedWriter bw = Files.newBufferedWriter(output, StandardCharsets.UTF_8))
-        {
-            bw.append("P6")
-              .append("\n")
-              .append(String.valueOf(width))
-              .append("\n")
-              .append(String.valueOf(height))
-              .append("\n")
-              .append(String.valueOf(255))
-              .append("\n");
-            
-            ByteBuffer helper = ByteBuffer.allocate(4);
-            for (int y = 0; y < height; y++)
-            {
-                for (int x = 0; x < width; x++)
-                {
-                    helper.putFloat(0, data.get());
-                    
-                    System.out.println();
-//                    if (swizzle)
-//                    {
-//                        bw.append(helper.getChar(2));
-//                        bw.append(helper.getChar(1));
-//                        bw.append(helper.getChar(0));
-//                    } else
-//                    {
-//                        bw.append(helper.getChar(0));
-//                        bw.append(helper.getChar(1));
-//                        bw.append(helper.getChar(2));
-//                    }
-                }
-                bw.newLine();
-            }
-        } catch (IOException e)
-        {
-            e.printStackTrace();
-        }
         
-        memoryBlock.free(deviceFamily.getDevice());
+        FloatBuffer data = memFloatBuffer(pointer, width * height);
+        EngineUtils.floatBufferToImage(data, output, width, height, swizzle);
+        memFree(data);
+        
+        
+        memoryBlock.free();
         vkDestroyImage(deviceFamily.getDevice(), dstImage, null);
-        
-        extent.free();
-        blitSize.free();
-        srcLayer.free();
-        destLayer.free();
-        blitRegion.free();
-        copyRegion.free();
-        properties.free();
-        createInfo.free();
-        subResource.free();
-        requirements.free();
-        memFree(pointerBuffer);
         subResourceLayout.free();
+        subResource.free();
+        copyRegion.free();
+        blitRegion.free();
+        blitSize.free();
+        destLayer.free();
+        srcLayer.free();
+        requirements.free();
+        createInfo.free();
+        extent.free();
+        properties.free();
+    }
+    
+    
+    public void saveScreenshotNested(Path output)
+    {
+        boolean blitSupport = true;
+        
+        try (VkFormatProperties properties = VkFormatProperties.calloc())
+        {
+            vkGetPhysicalDeviceFormatProperties(physicalDevice, colorAndDepthFormat.getColorFormat(), properties);
+            if (!EngineUtils.hasFlag(properties.optimalTilingFeatures(), VK_FORMAT_FEATURE_BLIT_SRC_BIT))
+            {
+                System.out.println("Device does not support blitting from optimal tiled images, using copy instead of blit!");
+                blitSupport = false;
+            }
+            
+            vkGetPhysicalDeviceFormatProperties(physicalDevice, VK_FORMAT_R8G8B8A8_UNORM, properties);
+            if (!EngineUtils.hasFlag(properties.optimalTilingFeatures(), VK_FORMAT_FEATURE_BLIT_DST_BIT))
+            {
+                System.out.println("Device does not support blitting to linear tiled images, using copy instead of blit!");
+                blitSupport = false;
+            }
+            
+            long source = swapchain.getImage(0);
+            
+            try (VkExtent3D extent = VkExtent3D.calloc()
+                                               .height(height)
+                                               .width(width)
+                                               .depth(1);
+            
+                 VkImageCreateInfo createInfo = VkImageCreateInfo.calloc()
+                                                                 .sType(VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO)
+                                                                 .imageType(VK_IMAGE_TYPE_2D)
+                                                                 .format(VK_FORMAT_R8G8B8A8_UNORM)
+                                                                 .extent(extent)
+                                                                 .arrayLayers(1)
+                                                                 .mipLevels(1)
+                                                                 .initialLayout(VK_IMAGE_LAYOUT_UNDEFINED)
+                                                                 .samples(VK_SAMPLE_COUNT_1_BIT)
+                                                                 .tiling(VK_IMAGE_TILING_LINEAR)
+                                                                 .usage(VK_IMAGE_USAGE_TRANSFER_DST_BIT))
+            {
+                
+                LongBuffer longBuff = memAllocLong(1);
+                EngineUtils.checkError(vkCreateImage(deviceFamily.getDevice(), createInfo, null, longBuff));
+                long dstImage = longBuff.get(0);
+                memFree(longBuff);
+                
+                
+                try (VkMemoryRequirements requirements = VkMemoryRequirements.calloc())
+                {
+                    vkGetImageMemoryRequirements(deviceFamily.getDevice(), dstImage, requirements);
+                    int index = EngineUtils.findMemoryTypeIndex(deviceFamily.getMemoryProperties(), requirements, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+                    try (VkMemoryAllocateInfo memoryAllocateInfo = VkMemoryAllocateInfo.calloc()
+                                                                                       .sType(VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO)
+                                                                                       .memoryTypeIndex(index)
+                                                                                       .allocationSize(requirements.size()))
+                    {
+                        LongBuffer dstMemory = memAllocLong(1);
+                        EngineUtils.checkError(vkAllocateMemory(deviceFamily.getDevice(), memoryAllocateInfo, null, dstMemory));
+                        long memPtr = dstMemory.get(0);
+                        memFree(dstMemory);
+                        
+                        EngineUtils.checkError(vkBindImageMemory(deviceFamily.getDevice(), dstImage, memPtr, 0));
+                        
+                        try (VkCommandBufferBeginInfo beginInfo = VkCommandBufferBeginInfo.calloc().sType(VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO))
+                        {
+                            VkCommandBuffer screenshotCommandBuffer = createCommandBuffer(deviceFamily.getDevice(), commandPoolHandle);
+                            EngineUtils.checkError(vkBeginCommandBuffer(setupCommandBuffer, beginInfo));
+                            
+                            imageBarrier(screenshotCommandBuffer,
+                                         dstImage,
+                                         VK_IMAGE_ASPECT_COLOR_BIT,
+                                         0,
+                                         VK_ACCESS_TRANSFER_WRITE_BIT,
+                                         VK_IMAGE_LAYOUT_UNDEFINED,
+                                         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                         VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                         VK_PIPELINE_STAGE_TRANSFER_BIT
+                                        );
+                            
+                            imageBarrier(screenshotCommandBuffer,
+                                         source,
+                                         VK_IMAGE_ASPECT_COLOR_BIT,
+                                         VK_ACCESS_MEMORY_READ_BIT,
+                                         VK_ACCESS_TRANSFER_READ_BIT,
+                                         VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+                                         VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                                         VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                         VK_PIPELINE_STAGE_TRANSFER_BIT
+                                        );
+                            
+                            try (VkImageSubresourceLayers srcLayer = VkImageSubresourceLayers.calloc().aspectMask(VK_IMAGE_ASPECT_COLOR_BIT).layerCount(1);
+                                 VkImageSubresourceLayers destLayer = VkImageSubresourceLayers.calloc().aspectMask(VK_IMAGE_ASPECT_COLOR_BIT).layerCount(1);
+                            
+                                 // should this be 0 and 0 or 0 and 1 instead of 1 and 1 for the offsets index?
+                                 VkOffset3D blitSize = VkOffset3D.calloc().x(width).y(height).z(1);
+                                 VkImageBlit.Buffer blitRegion = VkImageBlit.calloc(1).srcSubresource(srcLayer).srcOffsets(0, blitSize).dstSubresource(destLayer).dstOffsets(0, blitSize);
+                            
+                                 VkImageCopy.Buffer copyRegion = VkImageCopy.calloc(1).srcSubresource(srcLayer).dstSubresource(destLayer).extent(extent))
+                            {
+                                if (blitSupport)
+                                {
+                                    vkCmdBlitImage(screenshotCommandBuffer, source, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dstImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, blitRegion, VK_FILTER_NEAREST);
+                                } else
+                                {
+                                    vkCmdCopyImage(screenshotCommandBuffer, source, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dstImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, copyRegion);
+                                }
+                                
+                                
+                                imageBarrier(screenshotCommandBuffer,
+                                             dstImage,
+                                             VK_IMAGE_ASPECT_COLOR_BIT,
+                                             VK_ACCESS_TRANSFER_WRITE_BIT,
+                                             VK_ACCESS_MEMORY_READ_BIT,
+                                             VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                             VK_IMAGE_LAYOUT_GENERAL,
+                                             VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                             VK_PIPELINE_STAGE_TRANSFER_BIT
+                                            );
+                                
+                                imageBarrier(screenshotCommandBuffer,
+                                             source,
+                                             VK_IMAGE_ASPECT_COLOR_BIT,
+                                             VK_ACCESS_TRANSFER_READ_BIT,
+                                             VK_ACCESS_MEMORY_READ_BIT,
+                                             VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                                             VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+                                             VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                             VK_PIPELINE_STAGE_TRANSFER_BIT
+                                            );
+                                
+                                EngineUtils.checkError(vkEndCommandBuffer(screenshotCommandBuffer));
+                                
+                                submitCommandBuffer(deviceQueue, screenshotCommandBuffer);
+                                
+                                try (VkImageSubresource subResource = VkImageSubresource.calloc().aspectMask(VK_IMAGE_ASPECT_COLOR_BIT);
+                                     VkSubresourceLayout subResourceLayout = VkSubresourceLayout.calloc())
+                                {
+                                    vkGetImageSubresourceLayout(deviceFamily.getDevice(), dstImage, subResource, subResourceLayout);
+                                    boolean swizzle = false;
+                                    if (!blitSupport)
+                                    {
+                                        List<Integer> bgrFormats = Arrays.asList(VK_FORMAT_B8G8R8A8_SRGB, VK_FORMAT_B8G8R8A8_UNORM, VK_FORMAT_B8G8R8A8_SNORM);
+                                        swizzle = bgrFormats.contains(colorAndDepthFormat.getColorFormat());
+                                    }
+                                    
+                                    PointerBuffer pointerBuffer = memAllocPointer(1);
+                                    EngineUtils.checkError(vkMapMemory(deviceFamily.getDevice(), memPtr, 0, VK_WHOLE_SIZE, 0, pointerBuffer));
+                                    long pointer = pointerBuffer.get(0);
+                                    memFree(pointerBuffer);
+                                    
+                                    CharBuffer data = memCharBuffer(pointer, width * height);
+                                    EngineUtils.printBuffer(data);
+                                    //EngineUtils.floatBufferToImage(data, output, width, height, swizzle);
+                                    memFree(data);
+                                    
+                                    vkDestroyImage(deviceFamily.getDevice(), dstImage, null);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }

@@ -7,6 +7,8 @@ import java.io.*;
 import java.net.URL;
 import java.nio.*;
 import java.nio.channels.*;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.*;
 import java.util.Locale;
 
 import static org.lwjgl.vulkan.EXTDebugReport.*;
@@ -262,6 +264,24 @@ public final class EngineUtils
         System.out.println(result);
     }
     
+    public static void printBuffer(CharBuffer data)
+    {
+        StringBuilder result = new StringBuilder("(");
+        
+        data.mark();
+        
+        while (data.remaining() > 0)
+        {
+            char val = data.get();
+            result.append(val).append(", ");
+        }
+        
+        result.reverse().deleteCharAt(0).deleteCharAt(0).reverse().append(")");
+        data.reset();
+        
+        System.out.println(result);
+    }
+    
     public static void printBuffer(IntBuffer data)
     {
         StringBuilder result = new StringBuilder("(");
@@ -302,4 +322,44 @@ public final class EngineUtils
         
         System.out.println(result);
     }
+    
+    public static void floatBufferToImage(FloatBuffer data, Path output, int width, int height, boolean swizzle)
+    {
+        try (BufferedWriter bw = Files.newBufferedWriter(output, StandardCharsets.UTF_8))
+        {
+            bw.append("P6")
+              .append("\n")
+              .append(String.valueOf(width))
+              .append("\n")
+              .append(String.valueOf(height))
+              .append("\n")
+              .append(String.valueOf(255))
+              .append("\n");
+            
+            for (int y = 0; y < height; y++)
+            {
+                for (int x = 0; x < width; x++)
+                {
+                    ByteBuffer helper = ByteBuffer.allocate(4).putFloat(data.get());
+                    
+                    if (swizzle)
+                    {
+                        bw.append(helper.getChar(2));
+                        bw.append(helper.getChar(1));
+                        bw.append(helper.getChar(0));
+                    } else
+                    {
+                        bw.append(helper.getChar(0));
+                        bw.append(helper.getChar(1));
+                        bw.append(helper.getChar(2));
+                    }
+                }
+                bw.newLine();
+            }
+        } catch (IOException e)
+        {
+            e.printStackTrace();
+        }
+    }
+    
 }

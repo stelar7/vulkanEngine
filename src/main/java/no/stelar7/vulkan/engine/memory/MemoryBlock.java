@@ -1,9 +1,5 @@
 package no.stelar7.vulkan.engine.memory;
 
-import org.lwjgl.vulkan.*;
-
-import static org.lwjgl.vulkan.VK10.*;
-
 public class MemoryBlock
 {
     private long    memory;
@@ -90,9 +86,8 @@ public class MemoryBlock
         free = false;
     }
     
-    public void free(VkDevice device)
+    public void free()
     {
-        vkUnmapMemory(device, memory);
         free = true;
     }
 }
